@@ -122,3 +122,30 @@ if (SHARED_IO_SERVICE)
 endif(SHARED_IO_SERVICE)
 target_compile_definitions(${LIB_PROJECT_NAME} PRIVATE -DASIO_STANDALONE -DZAPHOYD_TPP_EXPORTS -DPROJECT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(${LIB_PROJECT_NAME} PUBLIC ${OPENSSL_LIBRARIES})
+
+# install steps
+install(TARGETS ${LIB_PROJECT_NAME} EXPORT ${LIB_PROJECT_NAME}-targets
+            ARCHIVE DESTINATION lib 
+            LIBRARY DESTINATION lib 
+            RUNTIME DESTINATION bin)
+# public API installation
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/include DESTINATION .)
+install(FILES ${WEBSOCKETS_API_HEADERS} DESTINATION ./include)
+install(FILES ${CMAKE_SOURCE_DIR}/bricks/include/Blob.h DESTINATION ./include)
+# generate ZaphoydTppWebsockets-config.cmake and ZaphoydTppWebsockets-config-version.cmake files
+set(CMAKE_INSTALL_LIBDIR ${CMAKE_INSTALL_PREFIX}/lib)
+configure_package_config_file("${LIB_PROJECT_NAME}Config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/${LIB_PROJECT_NAME}-config.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${LIB_PROJECT_NAME}")
+write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/generated/${LIB_PROJECT_NAME}-config-version.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+# install config and version file
+install(
+    FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/${LIB_PROJECT_NAME}-config.cmake"
+          "${CMAKE_CURRENT_BINARY_DIR}/generated/${LIB_PROJECT_NAME}-config-version.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${LIB_PROJECT_NAME}")
+# install targets file
+install(EXPORT "${LIB_PROJECT_NAME}-targets" 
+    NAMESPACE "${LIB_PROJECT_NAME}::"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${LIB_PROJECT_NAME}")

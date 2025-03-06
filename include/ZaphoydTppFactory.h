@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once // ZaphoydTppFactory.h
-#include "Loggable.h"
 #include "WebsocketFactory.h"
 #include "ZaphoydTppExport.h"
 
@@ -24,7 +23,7 @@ namespace Tpp {
 class ServiceProvider;
 }
 
-class ZAPHOYD_TPP_API ZaphoydTppFactory : public LoggableS<Websocket::Factory>
+class ZAPHOYD_TPP_API ZaphoydTppFactory : public Websocket::Factory
 {
     class ServiceProviderImpl;
 public:
@@ -35,5 +34,6 @@ public:
 private:
     std::shared_ptr<Tpp::ServiceProvider> serviceProvider() const;
 private:
+    const std::shared_ptr<Logger> _logger;
     const std::shared_ptr<ServiceProviderImpl> _serviceProvider;
 };

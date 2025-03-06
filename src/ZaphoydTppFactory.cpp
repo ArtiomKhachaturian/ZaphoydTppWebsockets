@@ -69,7 +69,7 @@ private:
 };
 
 ZaphoydTppFactory::ZaphoydTppFactory(const std::shared_ptr<Logger>& logger)
-    : LoggableS<Websocket::Factory>(logger)
+    : _logger(logger)
 #ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
     , _serviceProvider(std::make_shared<ServiceProviderImpl>(logger))
 #endif
@@ -85,13 +85,13 @@ std::shared_ptr<ServiceProvider> ZaphoydTppFactory::serviceProvider() const
 #ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
     return _serviceProvider;
 #else
-    return std::make_shared<ServiceProviderImpl>(logger());
+    return std::make_shared<ServiceProviderImpl>(_logger);
 #endif
 }
 
 std::unique_ptr<Websocket::EndPoint> ZaphoydTppFactory::create() const
 {
-    return std::make_unique<Tpp::EndPoint>(serviceProvider(), logger());
+    return std::make_unique<Tpp::EndPoint>(serviceProvider(), _logger);
 }
 
 ZaphoydTppFactory::ServiceProviderImpl::ServiceProviderImpl(const std::shared_ptr<Logger>& logger)
