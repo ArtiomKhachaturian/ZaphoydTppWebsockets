@@ -11,34 +11,34 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once
+#pragma once // Config.h
 #include "WebsocketOptions.h"
 #include <websocketpp/uri.hpp>
 
-namespace LiveKitCpp
+namespace Tpp
 {
 
-class WebsocketTppConfig
+class Config
 {
 public:
-    static WebsocketTppConfig create(WebsocketOptions options);
-    WebsocketTppConfig() = default;
-    WebsocketTppConfig(const WebsocketTppConfig&) = default;
-    WebsocketTppConfig(WebsocketTppConfig&&) = default;
+    static Config create(Websocket::Options options);
+    Config() = default;
+    Config(const Config&) = default;
+    Config(Config&&) = default;
     const websocketpp::uri_ptr& uri() const noexcept { return _uri; }
-    const WebsocketOptions& options() const noexcept { return _options; }
+    const Websocket::Options& options() const noexcept { return _options; }
     bool valid() const noexcept { return nullptr != uri(); }
     bool secure() const noexcept;
-    WebsocketTppConfig& operator = (const WebsocketTppConfig&) = default;
-    WebsocketTppConfig& operator = (WebsocketTppConfig&&) = default;
+    Config& operator = (const Config&) = default;
+    Config& operator = (Config&&) = default;
     explicit operator bool () const noexcept { return valid(); }
-    operator const WebsocketOptions& () const noexcept { return options(); }
+    operator const Websocket::Options& () const noexcept { return options(); }
     operator const websocketpp::uri_ptr& () const noexcept { return uri(); }
 private:
-    WebsocketTppConfig(websocketpp::uri_ptr uri, WebsocketOptions options);
+    Config(websocketpp::uri_ptr uri, Websocket::Options options);
 private:
     websocketpp::uri_ptr _uri;
-    WebsocketOptions _options;
+    Websocket::Options _options;
 };
 
-} // namespace LiveKitCpp
+} // namespace Tpp

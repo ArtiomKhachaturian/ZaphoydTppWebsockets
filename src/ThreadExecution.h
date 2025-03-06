@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once
+#pragma once // ThreadExecution.h
 #include "Loggable.h"
 #include "ThreadPriority.h"
 #include "ProtectedObj.h"
@@ -20,10 +20,10 @@
 #include <system_error>
 #include <thread>
 
-namespace LiveKitCpp
+namespace Tpp
 {
 
-class ThreadExecution : public LoggableShared<>
+class ThreadExecution : public LoggableS<>
 {
 public:
     virtual ~ThreadExecution();
@@ -38,7 +38,7 @@ public:
 protected:
     ThreadExecution(std::string threadName = std::string(),
                     ThreadPriority priority = ThreadPriority::High,
-                    const std::shared_ptr<LogsReceiver>& logger = {});
+                    const std::shared_ptr<Logger>& logger = {});
     // called inside of thread routine, after start
     virtual void doExecuteInThread() = 0;
     // called after changes of internal state to 'stopped' but before joining of execution thread
@@ -61,4 +61,4 @@ private:
     bool _started = false;
 };
 
-} // namespace LiveKitCpp
+} // namespace Tpp

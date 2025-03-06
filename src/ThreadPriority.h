@@ -16,7 +16,7 @@
 #include <Windows.h>
 #endif
 
-namespace LiveKitCpp
+namespace Tpp
 {
 
 enum class ThreadPriority : int
@@ -40,4 +40,4 @@ enum class ThreadPriority : int
 
 const char* ToString(ThreadPriority priority);
 
-} // namespace LiveKitCpp
+} // namespace Tpp

@@ -11,24 +11,28 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once // LoggingSeverity.h
+#pragma once // Api.h
+#include <string_view>
 
-namespace LiveKitCpp
+class Blob;
+
+namespace Websocket {
+enum class State;
+}
+
+namespace Tpp
 {
 
-// The meanings of the levels are:
-//  Verbose: This level is for data which we do not want to appear in the
-//   normal debug log, but should appear in diagnostic logs.
-//  Info: Chatty level used in debugging for all sorts of things, the default
-//   in debug builds.
-//  Warning: Something that may warrant investigation.
-//  Error: Something that should not have occurred.
-enum class LoggingSeverity
+class Api
 {
-    Verbose,
-    Info,
-    Warning,
-    Error,
+public:
+    virtual ~Api() = default;
+    virtual bool open() = 0;
+    virtual std::string host() const = 0;
+    virtual Websocket::State state() const = 0;
+    virtual void destroy() = 0;
+    virtual bool sendBinary(const std::shared_ptr<Blob>& binary) = 0;
+    virtual bool sendText(std::string_view text) = 0;
 };
 
-} // namespace LiveKitCpp
+} // namespace Tpp

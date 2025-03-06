@@ -11,22 +11,34 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once
-#include "WebsocketTppTypeDefs.h"
+#include "Config.h"
 
-namespace Websocket
+namespace Tpp
 {
 
-struct Tls;
-
-class TppServiceProvider
+Config::Config(websocketpp::uri_ptr uri, Websocket::Options options)
+    : _uri(std::move(uri))
+    , _options(std::move(options))
 {
-public:
-    virtual ~TppServiceProvider() = default;
-    virtual void startService() = 0;
-    virtual void stopService() = 0;
-    virtual TppIOSrv* service() = 0;
-    virtual std::shared_ptr<TppSSLCtx> createSslContext(const Tls& tls) const = 0;
-};
+}
 
-} // namespace Websocket
+Config Config::create(Websocket::Options options)
+{
+    if (!options._host.empty()) {
+        auto uri = std::make_shared<websocketpp::uri>(options._host);
+        if (uri->get_valid()) {
+            return Config(std::move(uri), std::move(options));
+        }
+    }
+    return {};
+}
+
+bool Config::secure() const noexcept
+{
+    if (const auto& u = uri()) {
+        return u->get_secure();
+    }
+    return false;
+}
+
+} // namespace Tpp

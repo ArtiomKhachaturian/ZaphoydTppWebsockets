@@ -11,23 +11,24 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once // MutexTraits.h
-#include "SharedLockGuard.h"
-#include <mutex>
-#include <shared_mutex>
+#pragma once // ServiceProvider.h
+#include "TypeDefs.h"
 
-namespace LiveKitCpp
+namespace Websocket {
+struct Tls;
+}
+
+namespace Tpp
 {
 
-template<class TMutexType> struct MutexTraits {
-    using WriteLock = std::lock_guard<TMutexType>;
-    using ReadLock  = WriteLock;
+class ServiceProvider
+{
+public:
+    virtual ~ServiceProvider() = default;
+    virtual void startService() = 0;
+    virtual void stopService() = 0;
+    virtual IOSrv* service() = 0;
+    virtual std::shared_ptr<SSLCtx> createSslContext(const Websocket::Tls& tls) const = 0;
 };
 
-template<> struct MutexTraits<std::shared_mutex> {
-    using WriteLock = std::lock_guard<std::shared_mutex>;
-    using ReadLock  = SharedLockGuard<std::shared_mutex>;
-};
-
-
-} // namespace LiveKitCpp
+} // namespace Tpp

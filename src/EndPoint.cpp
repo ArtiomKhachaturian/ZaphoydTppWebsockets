@@ -11,15 +11,16 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "WebsocketTpp.h"
-#include "WebsocketListener.h"
-#include "WebsocketFailure.h"
-#include "WebsocketTppServiceProvider.h"
-#include "WebsocketTppConfig.h"
-#include "WebsocketTppApi.h"
-#include "WebsocketTppExtensions.h"
-#include "WebsocketTppMemoryBlock.h"
+#include "EndPoint.h"
+#include "Config.h"
+#include "Api.h"
+#include "Extensions.h"
 #include "Listeners.h"
+#include "MessageBlob.h"
+#include "ServiceProvider.h"
+#include "WebsocketListener.h"
+#include "WebsocketError.h"
+#include "WebsocketState.h"
 #include <websocketpp/config/asio_client.hpp>
 #include <websocketpp/client.hpp>
 #include <websocketpp/close.hpp>
@@ -27,17 +28,15 @@
 
 namespace {
 
-using namespace LiveKitCpp;
-
-template<class TException, WebsocketFailure failure = WebsocketFailure::General>
-inline WebsocketError makeError(const TException& e) {
-    return WebsocketError(failure, e.code(), e.what());
+template<class TException, Websocket::Failure failure = Websocket::Failure::General>
+inline Websocket::Error makeError(const TException& e) {
+    return Websocket::Error{failure, e.code(), e.what()};
 }
 
-class LogStream : public LoggableShared<std::streambuf>
+class LogStream : public LoggableS<std::streambuf>
 {
 public:
-    LogStream(LoggingSeverity severity, const std::shared_ptr<LogsReceiver>& logger);
+    LogStream(LoggingSeverity severity, const std::shared_ptr<Logger>& logger);
     ~LogStream() final;
     operator std::ostream* () { return &_output; }
     // overrides of std::streambuf
@@ -55,7 +54,7 @@ const std::string_view g_logCategory("WebsocketTPP");
 
 }
 
-namespace LiveKitCpp
+namespace Tpp
 {
 
 using websocketpp::lib::placeholders::_1;
@@ -65,28 +64,28 @@ using namespace websocketpp::config;
 using Hdl = websocketpp::connection_hdl;
 
 template<class TClientType>
-class WebsocketTpp::Impl : public WebsocketTppApi
+class EndPoint::Impl : public Api
 {
     using Client = websocketpp::client<ReadBufferExtension<_readBufferSize, TClientType>>;
     using Message = typename TClientType::message_type;
     using MessagePtr = typename Message::ptr;
-    using MessageMemoryBlock = WebsocketTppMemoryBlock<MessagePtr>;
+    using MessageBlobImpl = MessageBlob<MessagePtr>;
 public:
     ~Impl() override;
     // impl. of WebsocketTppApi
     bool open() final;
     std::string host() const final { return hostRef(); }
-    State state() const final { return _state; }
-    bool sendBinary(const std::shared_ptr<const MemoryBlock>& binary) final;
-    bool sendText(const std::string_view& text) final;
+    Websocket::State state() const final { return _state; }
+    bool sendBinary(const std::shared_ptr<Blob>& binary) final;
+    bool sendText(std::string_view text) final;
     void destroy() final;
 protected:
     Impl(uint64_t socketId, 
          uint64_t connectionId,
-         WebsocketTppConfig config,
-         const std::shared_ptr<WebsocketListener>& listener,
-         const std::shared_ptr<WebsocketTppServiceProvider>& serviceProvider,
-         const std::shared_ptr<LogsReceiver>& logger) noexcept(false);
+         Config config,
+         const std::shared_ptr<Websocket::Listener>& listener,
+         const std::shared_ptr<ServiceProvider>& serviceProvider,
+         const std::shared_ptr<Logger>& logger) noexcept(false);
     uint64_t socketId() const noexcept { return _socketId; }
     uint64_t connectionId() const noexcept { return _connectionId; }
     const auto& hostRef() const noexcept { return options()._host; }
@@ -94,10 +93,10 @@ protected:
     const auto& serviceProvider() const noexcept { return _serviceProvider; }
     const auto& client() const noexcept { return _client; }
     auto& client() noexcept { return _client; }
-    void notifyAboutError(const WebsocketError& error);
-    void notifyAboutError(WebsocketFailure type, const websocketpp::exception& error);
-    void notifyAboutError(WebsocketFailure type, const WebsocketTppSysError& error);
-    void notifyAboutError(WebsocketFailure type, std::error_code ec,
+    void notifyAboutError(const Websocket::Error& error);
+    void notifyAboutError(Websocket::Failure type, const websocketpp::exception& error);
+    void notifyAboutError(Websocket::Failure type, const SysError& error);
+    void notifyAboutError(Websocket::Failure type, std::error_code ec,
                           std::string_view details = "");
     template <class TOption>
     void setOption(const TOption& option, const Hdl& hdl);
@@ -105,12 +104,12 @@ protected:
     void maybeSetOption(const std::optional<T>& value, const Hdl& hdl);
 private:
     static std::string toText(MessagePtr message);
-    static MessagePtr toMessage(const std::string_view& text);
-    static MessagePtr toMessage(const std::shared_ptr<const MemoryBlock>& binary);
+    static MessagePtr toMessage(std::string_view text);
+    static MessagePtr toMessage(const std::shared_ptr<Blob>& binary);
     static std::string formatLoggerId(uint64_t id);
     bool active() const noexcept { return !_destroyed; }
     // return true if state changed
-    bool setState(State state);
+    bool setState(Websocket::State state);
     bool setState(websocketpp::session::state::value state);
     bool updateState();
     void setHdl(const Hdl& hdl);
@@ -124,90 +123,88 @@ private:
 private:
     static constexpr auto _text = websocketpp::frame::opcode::value::text;
     static constexpr auto _binary = websocketpp::frame::opcode::value::binary;
-    static constexpr uint16_t _closeCode = WebsocketCloseCode::Normal;
+    static constexpr uint16_t _closeCode = Websocket::CloseCode::Normal;
     const uint64_t _socketId;
     const uint64_t _connectionId;
-    const WebsocketTppConfig _config;
-    const std::shared_ptr<WebsocketListener> _listener;
-    const std::shared_ptr<WebsocketTppServiceProvider> _serviceProvider;
+    const Config _config;
+    const std::shared_ptr<Websocket::Listener> _listener;
+    const std::shared_ptr<ServiceProvider> _serviceProvider;
     Client _client;
     LogStream _errorLogStream;
     ProtectedObj<Hdl> _hdl;
-    std::atomic<State> _state = State::Disconnected;
+    std::atomic<Websocket::State> _state = Websocket::State::Disconnected;
     std::atomic_bool _destroyed = false;
 };
 
-class WebsocketTpp::TlsOn : public Impl<asio_tls_client>
+class EndPoint::TlsOn : public Impl<asio_tls_client>
 {
 public:
-    TlsOn(uint64_t id, uint64_t connectionId,
-          WebsocketTppConfig config,
-          const std::shared_ptr<WebsocketListener>& listener,
-          const std::shared_ptr<WebsocketTppServiceProvider>& serviceProvider,
-          const std::shared_ptr<LogsReceiver>& logger) noexcept(false);
+    TlsOn(uint64_t id, uint64_t connectionId, Config config,
+          const std::shared_ptr<Websocket::Listener>& listener,
+          const std::shared_ptr<ServiceProvider>& serviceProvider,
+          const std::shared_ptr<Logger>& logger) noexcept(false);
     ~TlsOn() final;
 private:
-    std::shared_ptr<WebsocketTppSSLCtx> onInitTls(const Hdl&);
+    std::shared_ptr<SSLCtx> onInitTls(const Hdl&);
 };
 
-class WebsocketTpp::TlsOff : public Impl<asio_client>
+class EndPoint::TlsOff : public Impl<asio_client>
 {
 public:
-    TlsOff(uint64_t id, uint64_t connectionId,
-           WebsocketTppConfig config,
-           const std::shared_ptr<WebsocketListener>& listener,
-           const std::shared_ptr<WebsocketTppServiceProvider>& serviceProvider,
-           const std::shared_ptr<LogsReceiver>& logger) noexcept(false);
+    TlsOff(uint64_t id, uint64_t connectionId, Config config,
+           const std::shared_ptr<Websocket::Listener>& listener,
+           const std::shared_ptr<ServiceProvider>& serviceProvider,
+           const std::shared_ptr<Logger>& logger) noexcept(false);
 };
 
-class WebsocketTpp::Listener : public WebsocketListener
+class EndPoint::Listener : public Websocket::Listener
 {
 public:
     Listener() = default;
-    void add(WebsocketListener* listener) { _listeners.add(listener); }
-    void remove(WebsocketListener* listener) { _listeners.remove(listener); }
+    void add(Websocket::Listener* listener) { _listeners.add(listener); }
+    void remove(Websocket::Listener* listener) { _listeners.remove(listener); }
     // impl. of WebsocketListener
     void onStateChanged(uint64_t socketId, uint64_t connectionId,
-                        const std::string_view& host, State state) final;
+                        Websocket::State state) final;
     void onError(uint64_t socketId, uint64_t connectionId,
-                 const std::string_view& host, const WebsocketError& error) final;
-    void onTextMessageReceived(uint64_t socketId, uint64_t connectionId,
-                               const std::string_view& message) final;
-    void onBinaryMessageReceved(uint64_t socketId, uint64_t connectionId,
-                                const std::shared_ptr<const MemoryBlock>& message) final;
+                 const Websocket::Error& error) final;
+    void onTextMessage(uint64_t socketId, uint64_t connectionId,
+                       const std::string_view& message) final;
+    void onBinaryMessage(uint64_t socketId, uint64_t connectionId,
+                         const std::shared_ptr<Blob>& message) final;
 private:
-    Listeners<WebsocketListener*> _listeners;
+    Listeners<Websocket::Listener*> _listeners;
 };
 
-WebsocketTpp::WebsocketTpp(std::shared_ptr<WebsocketTppServiceProvider> serviceProvider,
-                           const std::shared_ptr<LogsReceiver>& logger)
-    : LoggableShared<Websocket>(logger)
+EndPoint::EndPoint(std::shared_ptr<ServiceProvider> serviceProvider,
+                   const std::shared_ptr<Logger>& logger)
+    : LoggableS<Websocket::EndPoint>(logger)
     , _serviceProvider(std::move(serviceProvider))
     , _listener(std::make_shared<Listener>())
 {
     assert(_serviceProvider); // service provider must not be null
 }
 
-WebsocketTpp::~WebsocketTpp()
+EndPoint::~EndPoint()
 {
     close();
 }
 
-void WebsocketTpp::addListener(WebsocketListener* listener)
+void EndPoint::addListener(Websocket::Listener* listener)
 {
     _listener->add(listener);
 }
 
-void WebsocketTpp::removeListener(WebsocketListener* listener)
+void EndPoint::removeListener(Websocket::Listener* listener)
 {
     _listener->remove(listener);
 }
 
-bool WebsocketTpp::open(WebsocketOptions options, uint64_t connectionId)
+bool EndPoint::open(Websocket::Options options, uint64_t connectionId)
 {
     bool ok = false;
     LOCK_WRITE_PROTECTED_OBJ(_impl);
-    if (!_impl.constRef() ||State::Disconnected == _impl.constRef()->state()) {
+    if (!_impl.constRef() ||Websocket::State::Disconnected == _impl.constRef()->state()) {
         auto impl = createImpl(std::move(options), connectionId);
         if (impl && impl->open()) {
             _impl = std::move(impl);
@@ -220,9 +217,9 @@ bool WebsocketTpp::open(WebsocketOptions options, uint64_t connectionId)
     return ok;
 }
 
-void WebsocketTpp::close()
+void EndPoint::close()
 {
-    std::shared_ptr<WebsocketTppApi> impl;
+    std::shared_ptr<Api> impl;
     {
         LOCK_WRITE_PROTECTED_OBJ(_impl);
         impl = _impl.take();
@@ -230,7 +227,7 @@ void WebsocketTpp::close()
     impl.reset();
 }
 
-std::string WebsocketTpp::host() const
+std::string EndPoint::host() const
 {
     LOCK_READ_PROTECTED_OBJ(_impl);
     if (const auto& impl = _impl.constRef()) {
@@ -239,16 +236,16 @@ std::string WebsocketTpp::host() const
     return {};
 }
 
-State WebsocketTpp::state() const
+Websocket::State EndPoint::state() const
 {
     LOCK_READ_PROTECTED_OBJ(_impl);
     if (const auto& impl = _impl.constRef()) {
         return impl->state();
     }
-    return State::Disconnected;
+    return Websocket::State::Disconnected;
 }
 
-bool WebsocketTpp::sendBinary(const std::shared_ptr<const MemoryBlock>& binary)
+bool EndPoint::sendBinary(const std::shared_ptr<Blob>& binary)
 {
     LOCK_READ_PROTECTED_OBJ(_impl);
     if (const auto& impl = _impl.constRef()) {
@@ -257,7 +254,7 @@ bool WebsocketTpp::sendBinary(const std::shared_ptr<const MemoryBlock>& binary)
     return false;
 }
 
-bool WebsocketTpp::sendText(const std::string_view& text)
+bool EndPoint::sendText(std::string_view text)
 {
     LOCK_READ_PROTECTED_OBJ(_impl);
     if (const auto& impl = _impl.constRef()) {
@@ -266,14 +263,12 @@ bool WebsocketTpp::sendText(const std::string_view& text)
     return false;
 }
 
-std::shared_ptr<WebsocketTppApi> WebsocketTpp::createImpl(WebsocketOptions options,
-                                                          uint64_t connectionId) const
+std::shared_ptr<Api> EndPoint::createImpl(Websocket::Options options,
+                                          uint64_t connectionId) const
 {
-    if (auto config = WebsocketTppConfig::create(std::move(options))) {
-        // deep copy of host instance becase r-value references
-        const std::string host(config.options()._host);
+    if (auto config = Config::create(std::move(options))) {
         try {
-            std::unique_ptr<WebsocketTppApi> impl;
+            std::unique_ptr<Api> impl;
             if (config.secure()) {
                 impl = std::make_unique<TlsOn>(id(), connectionId, std::move(config),
                                                _listener, _serviceProvider, logger());
@@ -282,24 +277,24 @@ std::shared_ptr<WebsocketTppApi> WebsocketTpp::createImpl(WebsocketOptions optio
                 impl = std::make_unique<TlsOff>(id(), connectionId, std::move(config),
                                                 _listener, _serviceProvider, logger());
             }
-            return std::shared_ptr<WebsocketTppApi>(impl.release(), [](auto* impl) { impl->destroy(); });
+            return std::shared_ptr<Api>(impl.release(), [](auto* impl) { impl->destroy(); });
         }
         catch(const websocketpp::exception& e) {
-            _listener->onError(id(), connectionId, host, makeError(e));
+            _listener->onError(id(), connectionId, makeError(e));
         }
-        catch (const WebsocketTppSysError& e) {
-            _listener->onError(id(), connectionId, host, makeError(e));
+        catch (const SysError& e) {
+            _listener->onError(id(), connectionId, makeError(e));
         }
     }
     return nullptr;
 }
 
 template <class TClientType>
-WebsocketTpp::Impl<TClientType>::Impl(uint64_t socketId, uint64_t connectionId,
-                                      WebsocketTppConfig config,
-                                      const std::shared_ptr<WebsocketListener>& listener,
-                                      const std::shared_ptr<WebsocketTppServiceProvider>& serviceProvider,
-                                      const std::shared_ptr<LogsReceiver>& logger) noexcept(false)
+EndPoint::Impl<TClientType>::Impl(uint64_t socketId, uint64_t connectionId,
+                                  Config config,
+                                  const std::shared_ptr<Websocket::Listener>& listener,
+                                  const std::shared_ptr<ServiceProvider>& serviceProvider,
+                                  const std::shared_ptr<Logger>& logger) noexcept(false)
     : _socketId(socketId)
     , _connectionId(connectionId)
     , _config(std::move(config))
@@ -324,7 +319,7 @@ WebsocketTpp::Impl<TClientType>::Impl(uint64_t socketId, uint64_t connectionId,
 }
 
 template <class TClientType>
-WebsocketTpp::Impl<TClientType>::~Impl()
+EndPoint::Impl<TClientType>::~Impl()
 {
     _client.set_socket_init_handler(nullptr);
     _client.set_message_handler(nullptr);
@@ -336,12 +331,12 @@ WebsocketTpp::Impl<TClientType>::~Impl()
 }
 
 template <class TClientType>
-bool WebsocketTpp::Impl<TClientType>::open()
+bool EndPoint::Impl<TClientType>::open()
 {
     websocketpp::lib::error_code ec;
     const auto connection = _client.get_connection(_config, ec);
     if (ec) {
-        notifyAboutError(WebsocketFailure::NoConnection, ec);
+        notifyAboutError(Websocket::Failure::NoConnection, ec);
     }
     else {
         const auto& extraHeaders = options()._extraHeaders;
@@ -350,11 +345,11 @@ bool WebsocketTpp::Impl<TClientType>::open()
                 connection->append_header(it->first, it->second);
             }
             catch(const websocketpp::exception& e) {
-                notifyAboutError(WebsocketFailure::CustomHeader, e);
+                notifyAboutError(Websocket::Failure::CustomHeader, e);
                 return false;
             }
-            catch (const WebsocketTppSysError& e) {
-                notifyAboutError(WebsocketFailure::CustomHeader, e);
+            catch (const SysError& e) {
+                notifyAboutError(Websocket::Failure::CustomHeader, e);
                 return false;
             }
         }
@@ -364,7 +359,7 @@ bool WebsocketTpp::Impl<TClientType>::open()
 }
 
 template <class TClientType>
-bool WebsocketTpp::Impl<TClientType>::sendText(const std::string_view& text)
+bool EndPoint::Impl<TClientType>::sendText(std::string_view text)
 {
     if (active()) {
         try {
@@ -372,17 +367,17 @@ bool WebsocketTpp::Impl<TClientType>::sendText(const std::string_view& text)
             return true;
         }
         catch (const websocketpp::exception& e) {
-            notifyAboutError(WebsocketFailure::WriteText, e);
+            notifyAboutError(Websocket::Failure::WriteText, e);
         }
-        catch (const WebsocketTppSysError& e) {
-            notifyAboutError(WebsocketFailure::WriteText, e);
+        catch (const SysError& e) {
+            notifyAboutError(Websocket::Failure::WriteText, e);
         }
     }
     return false;
 }
 
 template <class TClientType>
-bool WebsocketTpp::Impl<TClientType>::sendBinary(const std::shared_ptr<const MemoryBlock>& binary)
+bool EndPoint::Impl<TClientType>::sendBinary(const std::shared_ptr<Blob>& binary)
 {
     if (active()) {
         try {
@@ -390,20 +385,20 @@ bool WebsocketTpp::Impl<TClientType>::sendBinary(const std::shared_ptr<const Mem
             return true;
         }
         catch (const websocketpp::exception& e) {
-            notifyAboutError(WebsocketFailure::WriteBinary, e);
+            notifyAboutError(Websocket::Failure::WriteBinary, e);
         }
-        catch (const WebsocketTppSysError& e) {
-            notifyAboutError(WebsocketFailure::WriteBinary, e);
+        catch (const SysError& e) {
+            notifyAboutError(Websocket::Failure::WriteBinary, e);
         }
     }
     return false;
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::destroy()
+void EndPoint::Impl<TClientType>::destroy()
 {
     if (!_destroyed.exchange(true)) {
-        setState(State::Disconnecting);
+        setState(Websocket::State::Disconnecting);
         {
             LOCK_WRITE_PROTECTED_OBJ(_hdl);
             auto hdl = _hdl.take();
@@ -412,7 +407,7 @@ void WebsocketTpp::Impl<TClientType>::destroy()
                     const auto reason = websocketpp::close::status::get_string(_closeCode);
                     // instance will be destroyed in [OnClose] handler
                     _client.close(hdl, _closeCode, reason);
-                    setState(State::Disconnected); // force
+                    setState(Websocket::State::Disconnected); // force
                     return;
                 }
                 catch (const std::exception& e) {
@@ -421,45 +416,49 @@ void WebsocketTpp::Impl<TClientType>::destroy()
                 }
             }
         }
-        setState(State::Disconnected);
+        setState(Websocket::State::Disconnected);
         delete this;
     }
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::notifyAboutError(const WebsocketError& error)
+void EndPoint::Impl<TClientType>::notifyAboutError(const Websocket::Error& error)
 {
     if (_errorLogStream.canLogError()) {
         _errorLogStream.logError(toString(error), g_logCategory);
     }
-    _listener->onError(socketId(), connectionId(), hostRef(), error);
+    _listener->onError(socketId(), connectionId(), error);
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::notifyAboutError(WebsocketFailure type,
-                                                       const websocketpp::exception& error)
+void EndPoint::Impl<TClientType>::notifyAboutError(Websocket::Failure type,
+                                                   const websocketpp::exception& error)
 {
     notifyAboutError(type, error.code(), error.what());
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::notifyAboutError(WebsocketFailure type,
-                                                       const WebsocketTppSysError& error)
+void EndPoint::Impl<TClientType>::notifyAboutError(Websocket::Failure type,
+                                                   const SysError& error)
 {
     notifyAboutError(type, error.code(), error.what());
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::notifyAboutError(WebsocketFailure type,
-                                                       std::error_code ec,
-                                                       std::string_view details)
+void EndPoint::Impl<TClientType>::notifyAboutError(Websocket::Failure type,
+                                                   std::error_code ec,
+                                                   std::string_view details)
 {
-    notifyAboutError(WebsocketError(type, std::move(ec), std::move(details)));
+    Websocket::Error error;
+    error._failure = type;
+    error._code = std::move(ec);
+    error._details.assign(details.data(), details.size());
+    notifyAboutError(error);
 }
 
 template <class TClientType>
 template <class TOption>
-void WebsocketTpp::Impl<TClientType>::setOption(const TOption& option, const Hdl& hdl)
+void EndPoint::Impl<TClientType>::setOption(const TOption& option, const Hdl& hdl)
 {
     if (!hdl.expired()) {
         try {
@@ -468,17 +467,17 @@ void WebsocketTpp::Impl<TClientType>::setOption(const TOption& option, const Hdl
             }
         }
         catch (const websocketpp::exception& e) {
-            notifyAboutError(WebsocketFailure::SocketOption, e);
+            notifyAboutError(Websocket::Failure::SocketOption, e);
         }
-        catch (const WebsocketTppSysError& e) {
-            notifyAboutError(WebsocketFailure::SocketOption, e);
+        catch (const SysError& e) {
+            notifyAboutError(Websocket::Failure::SocketOption, e);
         }
     }
 }
 
 template <class TClientType>
 template <class TOption, typename T>
-void WebsocketTpp::Impl<TClientType>::maybeSetOption(const std::optional<T>& value,
+void EndPoint::Impl<TClientType>::maybeSetOption(const std::optional<T>& value,
                                                      const Hdl& hdl)
 {
     if (value) {
@@ -487,7 +486,7 @@ void WebsocketTpp::Impl<TClientType>::maybeSetOption(const std::optional<T>& val
 }
 
 template <class TClientType>
-std::string WebsocketTpp::Impl<TClientType>::toText(MessagePtr message)
+std::string EndPoint::Impl<TClientType>::toText(MessagePtr message)
 {
     if (message) {
         auto text = std::move(message->get_raw_payload());
@@ -498,8 +497,8 @@ std::string WebsocketTpp::Impl<TClientType>::toText(MessagePtr message)
 }
 
 template <class TClientType>
-typename WebsocketTpp::Impl<TClientType>::MessagePtr
-    WebsocketTpp::Impl<TClientType>::toMessage(const std::string_view& text)
+typename EndPoint::Impl<TClientType>::MessagePtr
+    EndPoint::Impl<TClientType>::toMessage(std::string_view text)
 {
     auto message = std::make_shared<Message>(nullptr, _text, 0U);
     if (!text.empty()) {
@@ -509,8 +508,8 @@ typename WebsocketTpp::Impl<TClientType>::MessagePtr
 }
 
 template <class TClientType>
-typename WebsocketTpp::Impl<TClientType>::MessagePtr
-    WebsocketTpp::Impl<TClientType>::toMessage(const std::shared_ptr<const MemoryBlock>& binary)
+typename EndPoint::Impl<TClientType>::MessagePtr
+    EndPoint::Impl<TClientType>::toMessage(const std::shared_ptr<Blob>& binary)
 {
     auto message = std::make_shared<Message>(nullptr, _binary, 0U);
     if (binary) {
@@ -531,33 +530,33 @@ typename WebsocketTpp::Impl<TClientType>::MessagePtr
 
 
 template <class TClientType>
-std::string WebsocketTpp::Impl<TClientType>::formatLoggerId(uint64_t id)
+std::string EndPoint::Impl<TClientType>::formatLoggerId(uint64_t id)
 {
     return "WebsocketTpp (id #" + std::to_string(id) + ")";
 }
 
 template <class TClientType>
-bool WebsocketTpp::Impl<TClientType>::setState(State state)
+bool EndPoint::Impl<TClientType>::setState(Websocket::State state)
 {
     if (state != _state.exchange(state)) {
-        _listener->onStateChanged(socketId(), connectionId(), hostRef(), state);
+        _listener->onStateChanged(socketId(), connectionId(), state);
         return true;
     }
     return false;
 }
 
 template <class TClientType>
-bool WebsocketTpp::Impl<TClientType>::setState(websocketpp::session::state::value state)
+bool EndPoint::Impl<TClientType>::setState(websocketpp::session::state::value state)
 {
     switch (state) {
         case websocketpp::session::state::connecting:
-            return setState(State::Connecting);
+            return setState(Websocket::State::Connecting);
         case websocketpp::session::state::open:
-            return setState(State::Connected);
+            return setState(Websocket::State::Connected);
         case websocketpp::session::state::closing:
-            return setState(State::Disconnecting);
+            return setState(Websocket::State::Disconnecting);
         case websocketpp::session::state::closed:
-            return setState(State::Disconnected);
+            return setState(Websocket::State::Disconnected);
         default:
             assert(false); // unknown state
             break;
@@ -566,38 +565,38 @@ bool WebsocketTpp::Impl<TClientType>::setState(websocketpp::session::state::valu
 }
 
 template <class TClientType>
-bool WebsocketTpp::Impl<TClientType>::updateState()
+bool EndPoint::Impl<TClientType>::updateState()
 {
     websocketpp::lib::error_code ec; // for supression of exception
     if (const auto conn = _client.get_con_from_hdl(hdl(), ec)) {
         return setState(conn->get_state());
     }
-    return setState(State::Disconnected);
+    return setState(Websocket::State::Disconnected);
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::setHdl(const Hdl& hdl)
+void EndPoint::Impl<TClientType>::setHdl(const Hdl& hdl)
 {
     LOCK_WRITE_PROTECTED_OBJ(_hdl);
     _hdl = hdl;
 }
 
 template <class TClientType>
-Hdl WebsocketTpp::Impl<TClientType>::hdl() const
+Hdl EndPoint::Impl<TClientType>::hdl() const
 {
     LOCK_READ_PROTECTED_OBJ(_hdl);
     return _hdl.constRef();
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::onInit(const Hdl& hdl)
+void EndPoint::Impl<TClientType>::onInit(const Hdl& hdl)
 {
     setHdl(hdl);
     updateState();
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::onFail(const Hdl& hdl)
+void EndPoint::Impl<TClientType>::onFail(const Hdl& hdl)
 {
     websocketpp::lib::error_code ec;
     if (const auto connection = _client.get_con_from_hdl(hdl, ec)) {
@@ -605,13 +604,13 @@ void WebsocketTpp::Impl<TClientType>::onFail(const Hdl& hdl)
     }
     if (ec) {
         // report error
-        notifyAboutError(WebsocketFailure::General, ec);
+        notifyAboutError(Websocket::Failure::General, ec);
     }
     updateState();
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::onOpen(const Hdl& hdl)
+void EndPoint::Impl<TClientType>::onOpen(const Hdl& hdl)
 {
     maybeSetOption<asio::socket_base::broadcast>(options()._broadcast, hdl);
     maybeSetOption<asio::socket_base::do_not_route>(options()._doNotRoute, hdl);
@@ -627,17 +626,16 @@ void WebsocketTpp::Impl<TClientType>::onOpen(const Hdl& hdl)
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::onMessage(const Hdl& hdl, MessagePtr message)
+void EndPoint::Impl<TClientType>::onMessage(const Hdl& hdl, MessagePtr message)
 {
     if (message) {
         switch (message->get_opcode()) {
             case _text:
-                _listener->onTextMessageReceived(socketId(), connectionId(),
-                                                 toText(std::move(message)));
+                _listener->onTextMessage(socketId(), connectionId(), toText(std::move(message)));
                 break;
             case _binary:
-                _listener->onBinaryMessageReceved(socketId(), connectionId(),
-                                                  std::make_shared<MessageMemoryBlock>(std::move(message)));
+                _listener->onBinaryMessage(socketId(), connectionId(),
+                                           std::make_shared<MessageBlobImpl>(std::move(message)));
                 break;
             default:
                 break;
@@ -646,7 +644,7 @@ void WebsocketTpp::Impl<TClientType>::onMessage(const Hdl& hdl, MessagePtr messa
 }
 
 template <class TClientType>
-void WebsocketTpp::Impl<TClientType>::onClose(const Hdl&)
+void EndPoint::Impl<TClientType>::onClose(const Hdl&)
 {
     if (_destroyed) {
         delete this;
@@ -657,84 +655,76 @@ void WebsocketTpp::Impl<TClientType>::onClose(const Hdl&)
     }
 }
 
-WebsocketTpp::TlsOn::TlsOn(uint64_t id, uint64_t connectionId,
-                           WebsocketTppConfig config,
-                           const std::shared_ptr<WebsocketListener>& listener,
-                           const std::shared_ptr<WebsocketTppServiceProvider>& serviceProvider,
-                           const std::shared_ptr<LogsReceiver>& logger) noexcept(false)
+EndPoint::TlsOn::TlsOn(uint64_t id, uint64_t connectionId, Config config,
+                       const std::shared_ptr<Websocket::Listener>& listener,
+                       const std::shared_ptr<ServiceProvider>& serviceProvider,
+                       const std::shared_ptr<Logger>& logger) noexcept(false)
     : Impl<asio_tls_client>(id, connectionId, std::move(config), listener, serviceProvider, logger)
 {
     client().set_tls_init_handler(bind(&TlsOn::onInitTls, this, _1));
 }
 
-WebsocketTpp::TlsOn::~TlsOn()
+EndPoint::TlsOn::~TlsOn()
 {
     client().set_tls_init_handler(nullptr);
 }
 
-std::shared_ptr<WebsocketTppSSLCtx> WebsocketTpp::TlsOn::onInitTls(const Hdl&)
+std::shared_ptr<SSLCtx> EndPoint::TlsOn::onInitTls(const Hdl&)
 {
     try {
-        return serviceProvider()->createSSLContext(options()._tls);
+        return serviceProvider()->createSslContext(options()._tls);
     } catch (const std::system_error& e) {
-        notifyAboutError(WebsocketFailure::TlsOptions, e);
+        notifyAboutError(Websocket::Failure::TlsOptions, e);
     }
     return nullptr;
 }
 
-WebsocketTpp::TlsOff::TlsOff(uint64_t id, uint64_t connectionId,
-                             WebsocketTppConfig config,
-                             const std::shared_ptr<WebsocketListener>& listener,
-                             const std::shared_ptr<WebsocketTppServiceProvider>& serviceProvider,
-                             const std::shared_ptr<LogsReceiver>& logger) noexcept(false)
+EndPoint::TlsOff::TlsOff(uint64_t id, uint64_t connectionId, Config config,
+                         const std::shared_ptr<Websocket::Listener>& listener,
+                         const std::shared_ptr<ServiceProvider>& serviceProvider,
+                         const std::shared_ptr<Logger>& logger) noexcept(false)
     : Impl<asio_client>(id, connectionId, std::move(config), listener, serviceProvider, logger)
 {
 }
 
-void WebsocketTpp::Listener::onStateChanged(uint64_t socketId,
-                                            uint64_t connectionId,
-                                            const std::string_view& host,
-                                            State state)
+void EndPoint::Listener::onStateChanged(uint64_t socketId, uint64_t connectionId,
+                                        Websocket::State state)
 {
-    WebsocketListener::onStateChanged(socketId, connectionId, host, state);
-    _listeners.invokeMethod(&WebsocketListener::onStateChanged, socketId,
-                            connectionId, host, state);
+    Websocket::Listener::onStateChanged(socketId, connectionId, state);
+    _listeners.invokeMethod(&Websocket::Listener::onStateChanged, socketId,
+                            connectionId, state);
 }
 
-void WebsocketTpp::Listener::onError(uint64_t socketId,
-                                     uint64_t connectionId,
-                                     const std::string_view& host,
-                                     const WebsocketError& error)
+void EndPoint::Listener::onError(uint64_t socketId, uint64_t connectionId,
+                                 const Websocket::Error& error)
 {
-    WebsocketListener::onError(socketId, connectionId, host, error);
-    _listeners.invokeMethod(&WebsocketListener::onError, socketId,
-                            connectionId, host, error);
+    Websocket::Listener::onError(socketId, connectionId, error);
+    _listeners.invokeMethod(&Websocket::Listener::onError, socketId,
+                            connectionId, error);
 }
 
-void WebsocketTpp::Listener::onTextMessageReceived(uint64_t socketId,
-                                                   uint64_t connectionId,
-                                                   const std::string_view& message)
+void EndPoint::Listener::onTextMessage(uint64_t socketId, uint64_t connectionId,
+                                       const std::string_view& message)
 {
-    WebsocketListener::onTextMessageReceived(socketId, connectionId, message);
-    _listeners.invokeMethod(&WebsocketListener::onTextMessageReceived,
+    Websocket::Listener::onTextMessage(socketId, connectionId, message);
+    _listeners.invokeMethod(&Websocket::Listener::onTextMessage,
                             socketId, connectionId, message);
 }
 
-void WebsocketTpp::Listener::onBinaryMessageReceved(uint64_t socketId,
-                                                    uint64_t connectionId,
-                                                    const std::shared_ptr<const MemoryBlock>& message)
+void EndPoint::Listener::onBinaryMessage(uint64_t socketId, uint64_t connectionId,
+                                         const std::shared_ptr<Blob>& message)
 {
-    WebsocketListener::onBinaryMessageReceved(socketId, connectionId, message);
-    _listeners.invokeMethod(&WebsocketListener::onBinaryMessageReceved,
+    Websocket::Listener::onBinaryMessage(socketId, connectionId, message);
+    _listeners.invokeMethod(&Websocket::Listener::onBinaryMessage,
                             socketId, connectionId, message);
 }
 
-} // namespace LiveKitCpp
+} // namespace Tpp
 
 namespace {
 
-LogStream::LogStream(LoggingSeverity severity, const std::shared_ptr<LogsReceiver>& logger)
-    : LoggableShared<std::streambuf>(logger)
+LogStream::LogStream(LoggingSeverity severity, const std::shared_ptr<Logger>& logger)
+    : LoggableS<std::streambuf>(logger)
     , _severity(severity)
     , _output(this)
 {

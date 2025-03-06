@@ -11,28 +11,29 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once // WebsocketTppFactory.h
+#pragma once // ZaphoydTppFactory.h
+#include "Loggable.h"
 #include "WebsocketFactory.h"
+#include "ZaphoydTppExport.h"
 
-namespace Websocket
+// prototype defined in 'Bricks' library,
+// see https://github.com/ArtiomKhachaturian/Bricks
+class Logger;
+
+namespace Tpp {
+class ServiceProvider;
+}
+
+class ZAPHOYD_TPP_API ZaphoydTppFactory : public LoggableS<Websocket::Factory>
 {
-
-class TppServiceProvider;
-
-class TppFactory : public Factory
-{
-    class ServiceProvider;
+    class ServiceProviderImpl;
 public:
-    TppFactory();
+    ZaphoydTppFactory(const std::shared_ptr<Logger>& logger = {});
     // impl. of Factory
-    ~TppFactory() override;
-    std::unique_ptr<Endpoint> create() const override;
+    ~ZaphoydTppFactory() final;
+    std::unique_ptr<Websocket::EndPoint> create() const final;
 private:
-    std::shared_ptr<TppServiceProvider> serviceProvider() const;
-#ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
+    std::shared_ptr<Tpp::ServiceProvider> serviceProvider() const;
 private:
-    const std::shared_ptr<ServiceProvider> _serviceProvider;
-#endif
+    const std::shared_ptr<ServiceProviderImpl> _serviceProvider;
 };
-
-} // namespace Websocket

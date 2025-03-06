@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "ThreadExecution.h"
-#include "Utils.h"
+//#include "Utils.h"
 #ifdef _WIN32
 #include <Windows.h>
 #else
@@ -28,18 +28,18 @@
 namespace {
 
 #ifdef __APPLE__
-inline auto GetNativeQOS(LiveKitCpp::ThreadPriority priority) {
+inline auto GetNativeQOS(Tpp::ThreadPriority priority) {
     switch (priority)
     {
-        case LiveKitCpp::ThreadPriority::Realtime:
+        case Tpp::ThreadPriority::Realtime:
             return QOS_CLASS_USER_INTERACTIVE;
-        case LiveKitCpp::ThreadPriority::Highest:
+        case Tpp::ThreadPriority::Highest:
             return QOS_CLASS_USER_INITIATED;
-        case LiveKitCpp::ThreadPriority::High:
+        case Tpp::ThreadPriority::High:
             return QOS_CLASS_UTILITY;
-        case LiveKitCpp::ThreadPriority::Normal:
+        case Tpp::ThreadPriority::Normal:
             break;
-        case LiveKitCpp::ThreadPriority::Low:
+        case Tpp::ThreadPriority::Low:
             return QOS_CLASS_BACKGROUND;
         default:
             break;
@@ -48,18 +48,31 @@ inline auto GetNativeQOS(LiveKitCpp::ThreadPriority priority) {
 }
 #endif
 
+inline std::string toString(const std::system_error& e) {
+    const auto& code = e.code();
+    std::string desc("system error code #");
+    desc += std::to_string(code.value());
+    desc += "(" + code.message() + ")";
+    if (const auto what = e.what()) {
+        if (const auto len = std::strlen(what)) {
+            desc += ", " + std::string(what, len);
+        }
+    }
+    return desc;
+}
+
 const std::string_view g_logCategory("Thread execution");
 
 }
 
 
-namespace LiveKitCpp
+namespace Tpp
 {
 
 ThreadExecution::ThreadExecution(std::string threadName,
                                  ThreadPriority priority,
-                                 const std::shared_ptr<LogsReceiver>& logger)
-    : LoggableShared<>(logger)
+                                 const std::shared_ptr<Logger>& logger)
+    : LoggableS<>(logger)
     , _threadName(std::move(threadName))
     , _priority(priority)
 {
@@ -269,4 +282,4 @@ const char* ToString(ThreadPriority priority)
     return "";
 }
 
-} // namespace LiveKitCpp
+} // namespace Tpp

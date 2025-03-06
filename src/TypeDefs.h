@@ -11,16 +11,16 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once
+#pragma once // TypeDefs.h
 #include <websocketpp/common/asio.hpp>
 #include <websocketpp/common/asio_ssl.hpp>
 #include <websocketpp/common/system_error.hpp>
 
-namespace Websocket
+namespace Tpp
 {
 
-using TppIOSrv = websocketpp::lib::asio::io_service;
-using TppSSLCtx = websocketpp::lib::asio::ssl::context;
-using TppSysError = websocketpp::lib::system_error;
+using IOSrv = websocketpp::lib::asio::io_service;
+using SSLCtx = websocketpp::lib::asio::ssl::context;
+using SysError = websocketpp::lib::system_error;
 
-} // namespace Websocket
+} // namespace Tpp

@@ -11,18 +11,18 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#pragma once // WebsocketTppBlob.h
-#include "WebsocketBlob.h"
+#pragma once // MessageBlob.h
+#include "Blob.h"
 
-namespace Websocket
+namespace Tpp
 {
 
 template<class MessagePtr>
-class TppBlob : public Blob
+class MessageBlob : public Blob
 {
 public:
-    TppBlob(MessagePtr message);
-    ~TppBlob() final { _message->recycle(); }
+    MessageBlob(MessagePtr message);
+    ~MessageBlob() final { _message->recycle(); }
     // impl. of Blob
     size_t size() const noexcept final;
     const uint8_t* data() const noexcept final;
@@ -31,23 +31,23 @@ private:
 };
 
 template<class MessagePtr>
-inline TppBlob<MessagePtr>::TppBlob(MessagePtr message)
+inline MessageBlob<MessagePtr>::MessageBlob(MessagePtr message)
     : _message(std::move(message))
 {
 }
 
 template<class MessagePtr>
-inline size_t TppBlob<MessagePtr>::size() const noexcept final
+inline size_t MessageBlob<MessagePtr>::size() const noexcept
 {
     const auto& payload = _message->get_raw_payload();
     return payload.size();
 }
 
 template<class MessagePtr>
-inline const uint8_t* TppBlob<MessagePtr>::data() const noexcept
+inline const uint8_t* MessageBlob<MessagePtr>::data() const noexcept
 {
     const auto& payload = _message->get_raw_payload();
-    return reinterpret_cast<const uint8_t*>(payload.data())
+    return reinterpret_cast<const uint8_t*>(payload.data());
 }
 
-} // namespace Websocket
+} // namespace Tpp
