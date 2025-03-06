@@ -1,11 +1,10 @@
 cmake_minimum_required(VERSION 3.15)
 
-set(LIB_PROJECT_NAME ZaphoydTppWebsockets)
-
 # Project name
-project(${LIB_PROJECT_NAME} LANGUAGES CXX VERSION 0.0.1)
+project("ZaphoydTppWebsockets" LANGUAGES CXX VERSION 0.0.1)
 
 include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -84,7 +83,7 @@ file(GLOB_RECURSE WEBSOCKETS_API_HEADERS ${CMAKE_SOURCE_DIR}/websockets_api/incl
 file(GLOB_RECURSE BRICKS_API_HEADERS ${CMAKE_SOURCE_DIR}/bricks/include/*.${HEADER_FILE_EXT})
 
 # Create a static library
-add_library(${LIB_PROJECT_NAME} SHARED
+add_library(${PROJECT_NAME} SHARED
     ${PUBLIC_HEADERS}
     ${COMMON_HEADERS}
     ${COMMON_SOURCES}
@@ -98,7 +97,7 @@ source_group(TREE ${CMAKE_SOURCE_DIR}/websockets_api/include PREFIX "WebsocketsA
 source_group(TREE ${CMAKE_SOURCE_DIR}/bricks/include PREFIX "Bricks" FILES ${BRICKS_API_HEADERS})
 
 # Add include directories
-target_include_directories(${LIB_PROJECT_NAME} PRIVATE
+target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/service
     ${CMAKE_SOURCE_DIR}/websockets_api/include
@@ -111,41 +110,44 @@ target_include_directories(${LIB_PROJECT_NAME} PRIVATE
 )
 
 # Generic attributes for the library
-set_target_properties(${LIB_PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE YES SOVERSION ${PROJECT_VERSION} VERSION ${PROJECT_VERSION})
+set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE YES SOVERSION ${PROJECT_VERSION} VERSION ${PROJECT_VERSION})
 if (WIN32)
-    target_compile_definitions(${LIB_PROJECT_NAME} PRIVATE -D_WEBSOCKETPP_CPP11_STL_ -DUNICODE 
+    target_compile_definitions(${PROJECT_NAME} PRIVATE -D_WEBSOCKETPP_CPP11_STL_ -DUNICODE 
         -DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_ENABLE_EXTENDED_ALIGNED_STORAGE)
-    target_link_libraries(${LIB_PROJECT_NAME} PUBLIC "ws2_32.lib")
+    target_link_libraries(${PROJECT_NAME} PUBLIC "ws2_32.lib")
 endif()
 if (SHARED_IO_SERVICE)
-    target_compile_definitions(${LIB_PROJECT_NAME} PRIVATE -DWEBSOCKETS_TPP_SHARED_IO_SERVICE)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE -DWEBSOCKETS_TPP_SHARED_IO_SERVICE)
 endif(SHARED_IO_SERVICE)
-target_compile_definitions(${LIB_PROJECT_NAME} PRIVATE -DASIO_STANDALONE -DZAPHOYD_TPP_EXPORTS -DPROJECT_VERSION="${PROJECT_VERSION}")
-target_link_libraries(${LIB_PROJECT_NAME} PUBLIC ${OPENSSL_LIBRARIES})
+target_compile_definitions(${PROJECT_NAME} PRIVATE -DASIO_STANDALONE -DZAPHOYD_TPP_EXPORTS -DPROJECT_VERSION="${PROJECT_VERSION}")
+target_link_libraries(${PROJECT_NAME} PUBLIC ${OPENSSL_LIBRARIES})
 
 # install steps
-install(TARGETS ${LIB_PROJECT_NAME} EXPORT ${LIB_PROJECT_NAME}-targets
-            ARCHIVE DESTINATION lib 
-            LIBRARY DESTINATION lib 
-            RUNTIME DESTINATION bin)
+install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}Targets
+        ARCHIVE DESTINATION lib 
+        LIBRARY DESTINATION lib 
+        RUNTIME DESTINATION bin)
 # public API installation
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/include DESTINATION .)
 install(FILES ${WEBSOCKETS_API_HEADERS} DESTINATION ./include)
 install(FILES ${CMAKE_SOURCE_DIR}/bricks/include/Blob.h DESTINATION ./include)
-# generate ZaphoydTppWebsockets-config.cmake and ZaphoydTppWebsockets-config-version.cmake files
+# generate [config.cmake] and [-config-version.cmake] files
 set(CMAKE_INSTALL_LIBDIR ${CMAKE_INSTALL_PREFIX}/lib)
-configure_package_config_file("${LIB_PROJECT_NAME}Config.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/${LIB_PROJECT_NAME}-config.cmake"
-    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${LIB_PROJECT_NAME}")
-write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/generated/${LIB_PROJECT_NAME}-config-version.cmake"
-    VERSION ${PROJECT_VERSION}
+configure_package_config_file(./Config.cmake.in
+    "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+  )
+install(FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+
+write_basic_package_version_file(
+    "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
     COMPATIBILITY SameMajorVersion)
-# install config and version file
-install(
-    FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/${LIB_PROJECT_NAME}-config.cmake"
-          "${CMAKE_CURRENT_BINARY_DIR}/generated/${LIB_PROJECT_NAME}-config-version.cmake"
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${LIB_PROJECT_NAME}")
+
+install(FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+
 # install targets file
-install(EXPORT "${LIB_PROJECT_NAME}-targets" 
-    NAMESPACE "${LIB_PROJECT_NAME}::"
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${LIB_PROJECT_NAME}")
+install(EXPORT "${PROJECT_NAME}Targets" 
+    NAMESPACE "${PROJECT_NAME}::"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
