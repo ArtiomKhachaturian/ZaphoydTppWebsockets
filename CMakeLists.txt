@@ -36,6 +36,7 @@ function(downloadAndExtract ZIP_URL ZIP_FILE EXTRACT_DIR)
 endfunction(downloadAndExtract)
 
 function(findOpenSSL)
+    # Specify search paths in CMAKE_PREFIX_PATH variable (if needed): "/path/to/module_a;/another/path/to/module_b"
     find_package(OpenSSL)
     if (${OpenSSL_FOUND})
         message(STATUS "Found OpenSSL")
@@ -124,31 +125,32 @@ endif(SHARED_IO_SERVICE)
 target_compile_definitions(${PROJECT_NAME} PRIVATE -DASIO_STANDALONE -DZAPHOYD_TPP_EXPORTS -DPROJECT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(${PROJECT_NAME} PUBLIC ${OPENSSL_LIBRARIES})
 
-# install steps
-install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}Targets
-        ARCHIVE DESTINATION lib 
-        LIBRARY DESTINATION lib 
-        RUNTIME DESTINATION bin)
-# public API installation
-install(DIRECTORY ${CMAKE_SOURCE_DIR}/include DESTINATION .)
-install(FILES ${WEBSOCKETS_API_HEADERS} DESTINATION ./include)
-install(FILES ${CMAKE_SOURCE_DIR}/bricks/include/Blob.h DESTINATION ./include)
-# generate [config.cmake] and [config-version.cmake] files
-configure_package_config_file(./Config.cmake.in
-    "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
-  )
-install(FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+if (CMAKE_INSTALL_PREFIX)
+    set(CMAKE_INSTALL_LIBDIR ${CMAKE_INSTALL_PREFIX}/lib)
+    install(TARGETS ${PROJECT_NAME} 
+            EXPORT ${PROJECT_NAME}Targets
+            ARCHIVE DESTINATION lib 
+            LIBRARY DESTINATION lib 
+            RUNTIME DESTINATION bin)
+    # public API installation
+    install(DIRECTORY ${CMAKE_SOURCE_DIR}/include DESTINATION .)
+    install(FILES ${WEBSOCKETS_API_HEADERS} DESTINATION ./include)
+    install(FILES ${CMAKE_SOURCE_DIR}/bricks/include/Blob.h DESTINATION ./include)
 
-write_basic_package_version_file(
-    "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
-    COMPATIBILITY SameMajorVersion)
+    # generate [config.cmake] and [config-version.cmake] files
+    configure_package_config_file(./Config.cmake.in
+        "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+        INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+      )
+    install(FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake" DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
 
-install(FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+    write_basic_package_version_file(
+        "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+        COMPATIBILITY SameMajorVersion)
 
-# install targets file
-install(EXPORT "${PROJECT_NAME}Targets" 
-    NAMESPACE "${PROJECT_NAME}::"
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+    install(FILES "${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+
+    # install targets file
+    install(EXPORT "${PROJECT_NAME}Targets" DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+endif(CMAKE_INSTALL_PREFIX)
