@@ -71,8 +71,8 @@ namespace Tpp
 
 ThreadExecution::ThreadExecution(std::string threadName,
                                  ThreadPriority priority,
-                                 const std::shared_ptr<Logger>& logger)
-    : LoggableS<>(logger)
+                                 const std::shared_ptr<Bricks::Logger>& logger)
+    : Bricks::LoggableS<>(logger)
     , _threadName(std::move(threadName))
     , _priority(priority)
 {
@@ -80,7 +80,7 @@ ThreadExecution::ThreadExecution(std::string threadName,
 
 ThreadExecution::~ThreadExecution()
 {
-    LOCK_WRITE_PROTECTED_OBJ(_thread);
+    LOCK_WRITE_SAFE_OBJ(_thread);
     if (_started) {
         joinAndDestroyThread();
         _started = false;
@@ -90,7 +90,7 @@ ThreadExecution::~ThreadExecution()
 void ThreadExecution::startExecution(bool waitingUntilNotStarted)
 {
     try {
-        LOCK_WRITE_PROTECTED_OBJ(_thread);
+        LOCK_WRITE_SAFE_OBJ(_thread);
         if (!_started) {
             _thread = std::thread(std::bind(&ThreadExecution::execute, this));
             _started = true;
@@ -111,7 +111,7 @@ void ThreadExecution::startExecution(bool waitingUntilNotStarted)
 
 void ThreadExecution::stopExecution()
 {
-    LOCK_WRITE_PROTECTED_OBJ(_thread);
+    LOCK_WRITE_SAFE_OBJ(_thread);
     if (_started) {
         doStopThread();
         joinAndDestroyThread();
@@ -121,13 +121,13 @@ void ThreadExecution::stopExecution()
 
 bool ThreadExecution::started() const noexcept
 {
-    LOCK_READ_PROTECTED_OBJ(_thread);
+    LOCK_READ_SAFE_OBJ(_thread);
     return _started;
 }
 
 bool ThreadExecution::active() const noexcept
 {
-    LOCK_READ_PROTECTED_OBJ(_thread);
+    LOCK_READ_SAFE_OBJ(_thread);
     return _thread->joinable();
 }
 

@@ -14,9 +14,11 @@
 #pragma once // EndPoint.h
 #include "Loggable.h"
 #include "WebsocketEndPoint.h"
-#include "ProtectedObjAliases.h"
+#include "SafeObjAliases.h"
 
+namespace Bricks {
 class Logger;
+}
 
 namespace Tpp
 {
@@ -24,7 +26,7 @@ namespace Tpp
 class ServiceProvider;
 class Api;
 
-class EndPoint : public LoggableS<Websocket::EndPoint>
+class EndPoint : public Bricks::LoggableS<Websocket::EndPoint>
 {
     template<class TClientType> class Impl;
     class TlsOn;
@@ -32,7 +34,7 @@ class EndPoint : public LoggableS<Websocket::EndPoint>
     class Listener;
 public:
     EndPoint(std::shared_ptr<ServiceProvider> serviceProvider,
-            const std::shared_ptr<Logger>& logger = {});
+            const std::shared_ptr<Bricks::Logger>& logger = {});
     ~EndPoint() final;
     // impl. of Websocket
     void addListener(Websocket::Listener* listener) final;
@@ -42,7 +44,7 @@ public:
     std::string host() const final;
     Websocket::State state() const final;
     // impl. of CommandSender
-    bool sendBinary(const std::shared_ptr<Blob>& binary) final;
+    bool sendBinary(const std::shared_ptr<Bricks::Blob>& binary) final;
     bool sendText(std::string_view text) final;
 private:
     std::shared_ptr<Api> createImpl(Websocket::Options options,
@@ -54,7 +56,7 @@ private:
     static inline constexpr size_t _readBufferSize = 65536U;
     const std::shared_ptr<ServiceProvider> _serviceProvider;
     const std::shared_ptr<Listener> _listener;
-    ProtectedSharedPtr<Api> _impl;
+    Bricks::SafeSharedPtr<Api> _impl;
 };
 
 } // namespace Tpp

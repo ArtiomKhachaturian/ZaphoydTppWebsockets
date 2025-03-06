@@ -14,7 +14,9 @@
 #pragma once // Api.h
 #include <string_view>
 
+namespace Bricks {
 class Blob;
+}
 
 namespace Websocket {
 enum class State;
@@ -31,7 +33,7 @@ public:
     virtual std::string host() const = 0;
     virtual Websocket::State state() const = 0;
     virtual void destroy() = 0;
-    virtual bool sendBinary(const std::shared_ptr<Blob>& binary) = 0;
+    virtual bool sendBinary(const std::shared_ptr<Bricks::Blob>& binary) = 0;
     virtual bool sendText(std::string_view text) = 0;
 };
 

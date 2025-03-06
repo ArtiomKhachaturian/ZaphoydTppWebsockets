@@ -14,7 +14,7 @@
 #pragma once // ThreadExecution.h
 #include "Loggable.h"
 #include "ThreadPriority.h"
-#include "ProtectedObj.h"
+#include "SafeObj.h"
 #include <atomic>
 #include <string>
 #include <system_error>
@@ -23,7 +23,7 @@
 namespace Tpp
 {
 
-class ThreadExecution : public LoggableS<>
+class ThreadExecution : public Bricks::LoggableS<>
 {
 public:
     virtual ~ThreadExecution();
@@ -38,7 +38,7 @@ public:
 protected:
     ThreadExecution(std::string threadName = std::string(),
                     ThreadPriority priority = ThreadPriority::High,
-                    const std::shared_ptr<Logger>& logger = {});
+                    const std::shared_ptr<Bricks::Logger>& logger = {});
     // called inside of thread routine, after start
     virtual void doExecuteInThread() = 0;
     // called after changes of internal state to 'stopped' but before joining of execution thread
@@ -57,7 +57,7 @@ private:
 private:
     const std::string _threadName;
     const ThreadPriority _priority;
-    ProtectedObj<std::thread, std::mutex> _thread;
+    Bricks::SafeObj<std::thread, std::mutex> _thread;
     bool _started = false;
 };
 

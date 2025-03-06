@@ -17,7 +17,7 @@
 #include "WebsocketTls.h"
 #include "ThreadExecution.h"
 #ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-#include "ProtectedObj.h"
+#include "SafeObj.h"
 #endif
 #include <optional>
 
@@ -38,12 +38,12 @@ inline auto format(bool pem) {\
 
 }
 
-class ZaphoydTppFactory::ServiceProviderImpl : public ServiceProvider,
-                                               private ThreadExecution
+class ZaphoydTppFactory::ServiceImpl : public ServiceProvider,
+                                       private ThreadExecution
 {
 public:
-    ServiceProviderImpl(const std::shared_ptr<Logger>& logger = {});
-    ~ServiceProviderImpl() final { stopExecution(); }
+    ServiceImpl(const std::shared_ptr<Bricks::Logger>& logger = {});
+    ~ServiceImpl() final { stopExecution(); }
     // impl. of WebsocketTppServiceProvider
 #ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
     void startService() final;
@@ -64,14 +64,14 @@ private:
 private:
     const std::shared_ptr<IOSrv> _service;
 #ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-    ProtectedObj<uint64_t, std::mutex> _counter = 0U;
+    Bricks::SafeObj<uint64_t, std::mutex> _counter = 0U;
 #endif
 };
 
-ZaphoydTppFactory::ZaphoydTppFactory(const std::shared_ptr<Logger>& logger)
+ZaphoydTppFactory::ZaphoydTppFactory(const std::shared_ptr<Bricks::Logger>& logger)
     : _logger(logger)
 #ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-    , _serviceProvider(std::make_shared<ServiceProviderImpl>(logger))
+    , _serviceProvider(std::make_shared<ServiceImpl>(logger))
 #endif
 {
 }
@@ -85,7 +85,7 @@ std::shared_ptr<ServiceProvider> ZaphoydTppFactory::serviceProvider() const
 #ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
     return _serviceProvider;
 #else
-    return std::make_shared<ServiceProviderImpl>(_logger);
+    return std::make_shared<ServiceImpl>(_logger);
 #endif
 }
 
@@ -94,31 +94,31 @@ std::unique_ptr<Websocket::EndPoint> ZaphoydTppFactory::create() const
     return std::make_unique<Tpp::EndPoint>(serviceProvider(), _logger);
 }
 
-ZaphoydTppFactory::ServiceProviderImpl::ServiceProviderImpl(const std::shared_ptr<Logger>& logger)
+ZaphoydTppFactory::ServiceImpl::ServiceImpl(const std::shared_ptr<Bricks::Logger>& logger)
     : ThreadExecution("WebsocketsTPP", ThreadPriority::Highest, logger)
     , _service(std::make_shared<IOSrv>())
 {
 }
 
 #ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-void ZaphoydTppFactory::ServiceProviderImpl::startService()
+void ZaphoydTppFactory::ServiceImpl::startService()
 {
-    LOCK_WRITE_PROTECTED_OBJ(_counter);
+    LOCK_WRITE_SAFE_OBJ(_counter);
     if (0U == _counter.ref()++) {
         startExecution();
     }
 }
 
-void ZaphoydTppFactory::ServiceProviderImpl::stopService()
+void ZaphoydTppFactory::ServiceImpl::stopService()
 {
-    LOCK_WRITE_PROTECTED_OBJ(_counter);
+    LOCK_WRITE_SAFE_OBJ(_counter);
     if (_counter.constRef() && 1U == _counter.ref()--) {
         stopExecution();
     }
 }
 #endif
 
-std::shared_ptr<SSLCtx> ZaphoydTppFactory::ServiceProviderImpl::
+std::shared_ptr<SSLCtx> ZaphoydTppFactory::ServiceImpl::
     createSslContext(const Websocket::Tls& tls) const
 {
     if (const auto method = convert(tls._method)) {
@@ -198,23 +198,23 @@ std::shared_ptr<SSLCtx> ZaphoydTppFactory::ServiceProviderImpl::
     return nullptr;
 }
 
-void ZaphoydTppFactory::ServiceProviderImpl::doExecuteInThread()
+void ZaphoydTppFactory::ServiceImpl::doExecuteInThread()
 {
     // local copy for keep lifetime if thread was detached
     const auto service(_service);
     websocketpp::lib::asio::error_code ec;
     service->run(ec);
     if (ec) {
-        // TODO: add ASIO error logs
+        logError(ec.message());
     }
 }
 
-void ZaphoydTppFactory::ServiceProviderImpl::doStopThread()
+void ZaphoydTppFactory::ServiceImpl::doStopThread()
 {
     _service->stop();
 }
 
-std::optional<SSLCtx::method> ZaphoydTppFactory::ServiceProviderImpl::
+std::optional<SSLCtx::method> ZaphoydTppFactory::ServiceImpl::
     convert(Websocket::TlsMethod method)
 {
     switch (method) {

@@ -17,7 +17,9 @@
 
 // prototype defined in 'Bricks' library,
 // see https://github.com/ArtiomKhachaturian/Bricks
+namespace Bricks {
 class Logger;
+}
 
 namespace Tpp {
 class ServiceProvider;
@@ -25,15 +27,15 @@ class ServiceProvider;
 
 class ZAPHOYD_TPP_API ZaphoydTppFactory : public Websocket::Factory
 {
-    class ServiceProviderImpl;
+    class ServiceImpl;
 public:
-    ZaphoydTppFactory(const std::shared_ptr<Logger>& logger = {});
+    ZaphoydTppFactory(const std::shared_ptr<Bricks::Logger>& logger = {});
     // impl. of Factory
     ~ZaphoydTppFactory() final;
     std::unique_ptr<Websocket::EndPoint> create() const final;
 private:
     std::shared_ptr<Tpp::ServiceProvider> serviceProvider() const;
 private:
-    const std::shared_ptr<Logger> _logger;
-    const std::shared_ptr<ServiceProviderImpl> _serviceProvider;
+    const std::shared_ptr<Bricks::Logger> _logger;
+    const std::shared_ptr<ServiceImpl> _serviceProvider;
 };

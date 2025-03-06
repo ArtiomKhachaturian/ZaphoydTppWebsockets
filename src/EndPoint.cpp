@@ -33,10 +33,11 @@ inline Websocket::Error makeError(const TException& e) {
     return Websocket::Error{failure, e.code(), e.what()};
 }
 
-class LogStream : public LoggableS<std::streambuf>
+class LogStream : public Bricks::LoggableS<std::streambuf>
 {
 public:
-    LogStream(LoggingSeverity severity, const std::shared_ptr<Logger>& logger);
+    LogStream(Bricks::LoggingSeverity severity,
+              const std::shared_ptr<Bricks::Logger>& logger);
     ~LogStream() final;
     operator std::ostream* () { return &_output; }
     // overrides of std::streambuf
@@ -45,9 +46,9 @@ public:
 private:
     void sendBufferToLog();
 private:
-    const LoggingSeverity _severity;
+    const Bricks::LoggingSeverity _severity;
     std::ostream _output;
-    ProtectedObj<std::string, std::mutex> _logBuffer;
+    Bricks::SafeObj<std::string, std::mutex> _logBuffer;
 };
 
 const std::string_view g_logCategory("WebsocketTPP");
@@ -76,7 +77,7 @@ public:
     bool open() final;
     std::string host() const final { return hostRef(); }
     Websocket::State state() const final { return _state; }
-    bool sendBinary(const std::shared_ptr<Blob>& binary) final;
+    bool sendBinary(const std::shared_ptr<Bricks::Blob>& binary) final;
     bool sendText(std::string_view text) final;
     void destroy() final;
 protected:
@@ -85,7 +86,7 @@ protected:
          Config config,
          const std::shared_ptr<Websocket::Listener>& listener,
          const std::shared_ptr<ServiceProvider>& serviceProvider,
-         const std::shared_ptr<Logger>& logger) noexcept(false);
+         const std::shared_ptr<Bricks::Logger>& logger) noexcept(false);
     uint64_t socketId() const noexcept { return _socketId; }
     uint64_t connectionId() const noexcept { return _connectionId; }
     const auto& hostRef() const noexcept { return options()._host; }
@@ -105,7 +106,7 @@ protected:
 private:
     static std::string toText(MessagePtr message);
     static MessagePtr toMessage(std::string_view text);
-    static MessagePtr toMessage(const std::shared_ptr<Blob>& binary);
+    static MessagePtr toMessage(const std::shared_ptr<Bricks::Blob>& binary);
     static std::string formatLoggerId(uint64_t id);
     bool active() const noexcept { return !_destroyed; }
     // return true if state changed
@@ -132,7 +133,7 @@ private:
     Client _client;
     LogStream _errorLogStream;
     LogStream _accessLogStream;
-    ProtectedObj<Hdl> _hdl;
+    Bricks::SafeObj<Hdl> _hdl;
     std::atomic<Websocket::State> _state = Websocket::State::Disconnected;
     std::atomic_bool _destroyed = false;
 };
@@ -143,7 +144,7 @@ public:
     TlsOn(uint64_t id, uint64_t connectionId, Config config,
           const std::shared_ptr<Websocket::Listener>& listener,
           const std::shared_ptr<ServiceProvider>& serviceProvider,
-          const std::shared_ptr<Logger>& logger) noexcept(false);
+          const std::shared_ptr<Bricks::Logger>& logger) noexcept(false);
     ~TlsOn() final;
 private:
     std::shared_ptr<SSLCtx> onInitTls(const Hdl&);
@@ -155,7 +156,7 @@ public:
     TlsOff(uint64_t id, uint64_t connectionId, Config config,
            const std::shared_ptr<Websocket::Listener>& listener,
            const std::shared_ptr<ServiceProvider>& serviceProvider,
-           const std::shared_ptr<Logger>& logger) noexcept(false);
+           const std::shared_ptr<Bricks::Logger>& logger) noexcept(false);
 };
 
 class EndPoint::Listener : public Websocket::Listener
@@ -172,14 +173,14 @@ public:
     void onTextMessage(uint64_t socketId, uint64_t connectionId,
                        const std::string_view& message) final;
     void onBinaryMessage(uint64_t socketId, uint64_t connectionId,
-                         const std::shared_ptr<Blob>& message) final;
+                         const std::shared_ptr<Bricks::Blob>& message) final;
 private:
-    Listeners<Websocket::Listener*> _listeners;
+    Bricks::Listeners<Websocket::Listener*> _listeners;
 };
 
 EndPoint::EndPoint(std::shared_ptr<ServiceProvider> serviceProvider,
-                   const std::shared_ptr<Logger>& logger)
-    : LoggableS<Websocket::EndPoint>(logger)
+                   const std::shared_ptr<Bricks::Logger>& logger)
+    : Bricks::LoggableS<Websocket::EndPoint>(logger)
     , _serviceProvider(std::move(serviceProvider))
     , _listener(std::make_shared<Listener>())
 {
@@ -204,7 +205,7 @@ void EndPoint::removeListener(Websocket::Listener* listener)
 bool EndPoint::open(Websocket::Options options, uint64_t connectionId)
 {
     bool ok = false;
-    LOCK_WRITE_PROTECTED_OBJ(_impl);
+    LOCK_WRITE_SAFE_OBJ(_impl);
     if (!_impl.constRef() ||Websocket::State::Disconnected == _impl.constRef()->state()) {
         auto impl = createImpl(std::move(options), connectionId);
         if (impl && impl->open()) {
@@ -222,7 +223,7 @@ void EndPoint::close()
 {
     std::shared_ptr<Api> impl;
     {
-        LOCK_WRITE_PROTECTED_OBJ(_impl);
+        LOCK_WRITE_SAFE_OBJ(_impl);
         impl = _impl.take();
     }
     impl.reset();
@@ -230,7 +231,7 @@ void EndPoint::close()
 
 std::string EndPoint::host() const
 {
-    LOCK_READ_PROTECTED_OBJ(_impl);
+    LOCK_READ_SAFE_OBJ(_impl);
     if (const auto& impl = _impl.constRef()) {
         return impl->host();
     }
@@ -239,16 +240,16 @@ std::string EndPoint::host() const
 
 Websocket::State EndPoint::state() const
 {
-    LOCK_READ_PROTECTED_OBJ(_impl);
+    LOCK_READ_SAFE_OBJ(_impl);
     if (const auto& impl = _impl.constRef()) {
         return impl->state();
     }
     return Websocket::State::Disconnected;
 }
 
-bool EndPoint::sendBinary(const std::shared_ptr<Blob>& binary)
+bool EndPoint::sendBinary(const std::shared_ptr<Bricks::Blob>& binary)
 {
-    LOCK_READ_PROTECTED_OBJ(_impl);
+    LOCK_READ_SAFE_OBJ(_impl);
     if (const auto& impl = _impl.constRef()) {
         return impl->sendBinary(binary);
     }
@@ -257,7 +258,7 @@ bool EndPoint::sendBinary(const std::shared_ptr<Blob>& binary)
 
 bool EndPoint::sendText(std::string_view text)
 {
-    LOCK_READ_PROTECTED_OBJ(_impl);
+    LOCK_READ_SAFE_OBJ(_impl);
     if (const auto& impl = _impl.constRef()) {
         return impl->sendText(text);
     }
@@ -295,14 +296,14 @@ EndPoint::Impl<TClientType>::Impl(uint64_t socketId, uint64_t connectionId,
                                   Config config,
                                   const std::shared_ptr<Websocket::Listener>& listener,
                                   const std::shared_ptr<ServiceProvider>& serviceProvider,
-                                  const std::shared_ptr<Logger>& logger) noexcept(false)
+                                  const std::shared_ptr<Bricks::Logger>& logger) noexcept(false)
     : _socketId(socketId)
     , _connectionId(connectionId)
     , _config(std::move(config))
     , _listener(listener)
     , _serviceProvider(serviceProvider)
-    , _errorLogStream(LoggingSeverity::Error, logger)
-    , _accessLogStream(LoggingSeverity::Verbose, logger)
+    , _errorLogStream(Bricks::LoggingSeverity::Error, logger)
+    , _accessLogStream(Bricks::LoggingSeverity::Verbose, logger)
 {
     // Initialize ASIO
     _client.set_user_agent(options()._userAgent);
@@ -379,7 +380,7 @@ bool EndPoint::Impl<TClientType>::sendText(std::string_view text)
 }
 
 template <class TClientType>
-bool EndPoint::Impl<TClientType>::sendBinary(const std::shared_ptr<Blob>& binary)
+bool EndPoint::Impl<TClientType>::sendBinary(const std::shared_ptr<Bricks::Blob>& binary)
 {
     if (active()) {
         try {
@@ -402,7 +403,7 @@ void EndPoint::Impl<TClientType>::destroy()
     if (!_destroyed.exchange(true)) {
         setState(Websocket::State::Disconnecting);
         {
-            LOCK_WRITE_PROTECTED_OBJ(_hdl);
+            LOCK_WRITE_SAFE_OBJ(_hdl);
             auto hdl = _hdl.take();
             if (!hdl.expired()) {
                 try {
@@ -511,7 +512,7 @@ typename EndPoint::Impl<TClientType>::MessagePtr
 
 template <class TClientType>
 typename EndPoint::Impl<TClientType>::MessagePtr
-    EndPoint::Impl<TClientType>::toMessage(const std::shared_ptr<Blob>& binary)
+    EndPoint::Impl<TClientType>::toMessage(const std::shared_ptr<Bricks::Blob>& binary)
 {
     auto message = std::make_shared<Message>(nullptr, _binary, 0U);
     if (binary) {
@@ -579,14 +580,14 @@ bool EndPoint::Impl<TClientType>::updateState()
 template <class TClientType>
 void EndPoint::Impl<TClientType>::setHdl(const Hdl& hdl)
 {
-    LOCK_WRITE_PROTECTED_OBJ(_hdl);
+    LOCK_WRITE_SAFE_OBJ(_hdl);
     _hdl = hdl;
 }
 
 template <class TClientType>
 Hdl EndPoint::Impl<TClientType>::hdl() const
 {
-    LOCK_READ_PROTECTED_OBJ(_hdl);
+    LOCK_READ_SAFE_OBJ(_hdl);
     return _hdl.constRef();
 }
 
@@ -660,7 +661,7 @@ void EndPoint::Impl<TClientType>::onClose(const Hdl&)
 EndPoint::TlsOn::TlsOn(uint64_t id, uint64_t connectionId, Config config,
                        const std::shared_ptr<Websocket::Listener>& listener,
                        const std::shared_ptr<ServiceProvider>& serviceProvider,
-                       const std::shared_ptr<Logger>& logger) noexcept(false)
+                       const std::shared_ptr<Bricks::Logger>& logger) noexcept(false)
     : Impl<asio_tls_client>(id, connectionId, std::move(config), listener, serviceProvider, logger)
 {
     client().set_tls_init_handler(bind(&TlsOn::onInitTls, this, _1));
@@ -684,7 +685,7 @@ std::shared_ptr<SSLCtx> EndPoint::TlsOn::onInitTls(const Hdl&)
 EndPoint::TlsOff::TlsOff(uint64_t id, uint64_t connectionId, Config config,
                          const std::shared_ptr<Websocket::Listener>& listener,
                          const std::shared_ptr<ServiceProvider>& serviceProvider,
-                         const std::shared_ptr<Logger>& logger) noexcept(false)
+                         const std::shared_ptr<Bricks::Logger>& logger) noexcept(false)
     : Impl<asio_client>(id, connectionId, std::move(config), listener, serviceProvider, logger)
 {
 }
@@ -693,40 +694,41 @@ void EndPoint::Listener::onStateChanged(uint64_t socketId, uint64_t connectionId
                                         Websocket::State state)
 {
     Websocket::Listener::onStateChanged(socketId, connectionId, state);
-    _listeners.invokeMethod(&Websocket::Listener::onStateChanged, socketId,
-                            connectionId, state);
+    _listeners.invoke(&Websocket::Listener::onStateChanged, socketId,
+                      connectionId, state);
 }
 
 void EndPoint::Listener::onError(uint64_t socketId, uint64_t connectionId,
                                  const Websocket::Error& error)
 {
     Websocket::Listener::onError(socketId, connectionId, error);
-    _listeners.invokeMethod(&Websocket::Listener::onError, socketId,
-                            connectionId, error);
+    _listeners.invoke(&Websocket::Listener::onError, socketId,
+                      connectionId, error);
 }
 
 void EndPoint::Listener::onTextMessage(uint64_t socketId, uint64_t connectionId,
                                        const std::string_view& message)
 {
     Websocket::Listener::onTextMessage(socketId, connectionId, message);
-    _listeners.invokeMethod(&Websocket::Listener::onTextMessage,
-                            socketId, connectionId, message);
+    _listeners.invoke(&Websocket::Listener::onTextMessage,
+                      socketId, connectionId, message);
 }
 
 void EndPoint::Listener::onBinaryMessage(uint64_t socketId, uint64_t connectionId,
-                                         const std::shared_ptr<Blob>& message)
+                                         const std::shared_ptr<Bricks::Blob>& message)
 {
     Websocket::Listener::onBinaryMessage(socketId, connectionId, message);
-    _listeners.invokeMethod(&Websocket::Listener::onBinaryMessage,
-                            socketId, connectionId, message);
+    _listeners.invoke(&Websocket::Listener::onBinaryMessage,
+                      socketId, connectionId, message);
 }
 
 } // namespace Tpp
 
 namespace {
 
-LogStream::LogStream(LoggingSeverity severity, const std::shared_ptr<Logger>& logger)
-    : LoggableS<std::streambuf>(logger)
+LogStream::LogStream(Bricks::LoggingSeverity severity,
+                     const std::shared_ptr<Bricks::Logger>& logger)
+    : Bricks::LoggableS<std::streambuf>(logger)
     , _severity(severity)
     , _output(this)
 {
@@ -743,7 +745,7 @@ std::streamsize LogStream::xsputn(const char* s, std::streamsize count)
             data = data.substr(0U, data.size() - 1U);
         }
         if (!data.empty()) {
-            LOCK_WRITE_PROTECTED_OBJ(_logBuffer);
+            LOCK_WRITE_SAFE_OBJ(_logBuffer);
             _logBuffer->append(data.data(), data.size());
         }
     }
@@ -765,7 +767,7 @@ LogStream::~LogStream()
 
 void LogStream::sendBufferToLog()
 {
-    LOCK_WRITE_PROTECTED_OBJ(_logBuffer);
+    LOCK_WRITE_SAFE_OBJ(_logBuffer);
     if (!_logBuffer->empty()) {
         log(_severity, _logBuffer.constRef(), g_logCategory);
         _logBuffer->clear();

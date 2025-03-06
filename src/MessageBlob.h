@@ -18,12 +18,12 @@ namespace Tpp
 {
 
 template<class MessagePtr>
-class MessageBlob : public Blob
+class MessageBlob : public Bricks::Blob
 {
 public:
     MessageBlob(MessagePtr message);
     ~MessageBlob() final { _message->recycle(); }
-    // impl. of Blob
+    // impl. of Bricks::Blob
     size_t size() const noexcept final;
     const uint8_t* data() const noexcept final;
 private:
