@@ -12,6 +12,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # -fvisibility=hidden
 set(CMAKE_C_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 
 
 set(HEADER_FILE_EXT h)
@@ -131,8 +133,7 @@ install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}Targets
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/include DESTINATION .)
 install(FILES ${WEBSOCKETS_API_HEADERS} DESTINATION ./include)
 install(FILES ${CMAKE_SOURCE_DIR}/bricks/include/Blob.h DESTINATION ./include)
-# generate [config.cmake] and [-config-version.cmake] files
-set(CMAKE_INSTALL_LIBDIR ${CMAKE_INSTALL_PREFIX}/lib)
+# generate [config.cmake] and [config-version.cmake] files
 configure_package_config_file(./Config.cmake.in
     "${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
     INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
