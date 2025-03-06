@@ -131,6 +131,7 @@ private:
     const std::shared_ptr<ServiceProvider> _serviceProvider;
     Client _client;
     LogStream _errorLogStream;
+    LogStream _accessLogStream;
     ProtectedObj<Hdl> _hdl;
     std::atomic<Websocket::State> _state = Websocket::State::Disconnected;
     std::atomic_bool _destroyed = false;
@@ -301,11 +302,12 @@ EndPoint::Impl<TClientType>::Impl(uint64_t socketId, uint64_t connectionId,
     , _listener(listener)
     , _serviceProvider(serviceProvider)
     , _errorLogStream(LoggingSeverity::Error, logger)
+    , _accessLogStream(LoggingSeverity::Verbose, logger)
 {
     // Initialize ASIO
     _client.set_user_agent(options()._userAgent);
-    _client.get_alog().set_channels(websocketpp::log::alevel::none);
     _client.get_elog().set_ostream(_errorLogStream);
+    _client.get_alog().set_ostream(_accessLogStream);
     _client.init_asio(_serviceProvider->service());
     // Register our handlers
     _client.set_socket_init_handler(bind(&Impl::onInit, this, _1));
@@ -737,7 +739,7 @@ std::streamsize LogStream::xsputn(const char* s, std::streamsize count)
         if (data.front() == '\n') {
             data = data.substr(1U, data.size() - 1U);
         }
-        if (data.back() == '\n') {
+        if (!data.empty() && data.back() == '\n') {
             data = data.substr(0U, data.size() - 1U);
         }
         if (!data.empty()) {
