@@ -127,6 +127,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC ${OPENSSL_LIBRARIES})
 
 if (CMAKE_INSTALL_PREFIX)
     set(CMAKE_INSTALL_LIBDIR ${CMAKE_INSTALL_PREFIX}/lib)
+    target_include_directories(${PROJECT_NAME} INTERFACE $<INSTALL_INTERFACE:include>)
+
     install(TARGETS ${PROJECT_NAME} 
             EXPORT ${PROJECT_NAME}Targets
             ARCHIVE DESTINATION lib 
