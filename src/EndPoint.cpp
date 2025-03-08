@@ -530,7 +530,12 @@ bool EndPoint::Impl<TClientType>::send(const TObj& obj)
 {
     if (active()) {
         try {
-            _client.send(hdl(), toText(obj), opCode);
+            if constexpr (opCode == _ping) {
+                _client.ping(hdl(), toText(obj));
+            }
+            else {
+                _client.send(hdl(), toText(obj), opCode);
+            }
             return true;
         }
         catch (const websocketpp::exception& e) {
@@ -639,14 +644,15 @@ void EndPoint::Impl<TClientType>::onMessage(const Hdl& hdl, MessagePtr message)
     if (message) {
         switch (message->get_opcode()) {
             case _text:
-                _listener->onTextMessage(socketId(), connectionId(), toText(std::move(message)));
+                _listener->onTextMessage(socketId(), connectionId(),
+                                         toText(std::move(message)));
                 break;
             case _binary:
                 _listener->onBinaryMessage(socketId(), connectionId(),
-                                           MessageBlobImpl(std::move(message)));
+                                           MessageBlobImpl(message));
             case _pong:
                 _listener->onPong(socketId(), connectionId(),
-                                  MessageBlobImpl(std::move(message)));
+                                  MessageBlobImpl(message));
                 break;
             default:
                 break;

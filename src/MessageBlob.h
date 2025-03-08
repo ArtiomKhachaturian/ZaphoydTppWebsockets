@@ -21,8 +21,7 @@ template<class MessagePtr>
 class MessageBlob : public Bricks::Blob
 {
 public:
-    MessageBlob(MessagePtr message);
-    ~MessageBlob() final { _message->recycle(); }
+    MessageBlob(const MessagePtr& message);
     // impl. of Bricks::Blob
     size_t size() const noexcept final;
     const uint8_t* data() const noexcept final;
@@ -31,8 +30,8 @@ private:
 };
 
 template<class MessagePtr>
-inline MessageBlob<MessagePtr>::MessageBlob(MessagePtr message)
-    : _message(std::move(message))
+inline MessageBlob<MessagePtr>::MessageBlob(const MessagePtr& message)
+    : _message(message)
 {
 }
 
