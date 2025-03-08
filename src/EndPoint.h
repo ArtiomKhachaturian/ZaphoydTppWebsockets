@@ -31,14 +31,12 @@ class EndPoint : public Bricks::LoggableS<Websocket::EndPoint>
     template<class TClientType> class Impl;
     class TlsOn;
     class TlsOff;
-    class Listener;
 public:
     EndPoint(const std::shared_ptr<ServiceProvider>& serviceProvider,
              const std::shared_ptr<Bricks::Logger>& logger = {});
     ~EndPoint() final;
     // impl. of Websocket
-    void addListener(Websocket::Listener* listener) final;
-    void removeListener(Websocket::Listener* listener) final;
+    void setListener(const std::shared_ptr<Websocket::Listener>& listener) final;
     bool open(Websocket::Options options, uint64_t connectionId) final;
     void close() final;
     std::string host() const final;
@@ -52,9 +50,9 @@ private:
     // 64 Kb instead of 16 by default, see details at
     // https://docs.websocketpp.org/structwebsocketpp_1_1config_1_1core.html#af1f28eec2b5e12b6d7cccb0c87835119
     static inline constexpr size_t _readBufferSize = 65536U;
-    const std::shared_ptr<Listener> _listener;
     const std::shared_ptr<Api> _tlsOn;
     const std::shared_ptr<Api> _tlsOff;
+    std::shared_ptr<Websocket::Listener> _listener;
     std::shared_ptr<Api> _active;
 };
 

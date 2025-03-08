@@ -15,7 +15,6 @@
 #include "Config.h"
 #include "Api.h"
 #include "Extensions.h"
-#include "Listeners.h"
 #include "Listener.h"
 #include "MessageBlob.h"
 #include "ServiceProvider.h"
@@ -74,6 +73,7 @@ using websocketpp::lib::placeholders::_1;
 using websocketpp::lib::placeholders::_2;
 using websocketpp::lib::bind;
 using namespace websocketpp::config;
+using namespace websocketpp::transport::asio::tls_socket;
 using Hdl = websocketpp::connection_hdl;
 
 template<class TClientType>
@@ -101,8 +101,7 @@ protected:
     uint64_t connectionId() const noexcept { return _connectionId; }
     Websocket::Tls tlsOptions() const noexcept;
     const auto& serviceProvider() const noexcept { return _serviceProvider; }
-    const auto& client() const noexcept { return _client; }
-    auto& client() noexcept { return _client; }
+    void setTlsInitHandler(tls_init_handler handler);
     void notifyAboutError(const Websocket::Error& error);
     void notifyAboutError(Websocket::Failure type, const websocketpp::exception& error);
     void notifyAboutError(Websocket::Failure type, const SysError& error);
@@ -146,6 +145,7 @@ private:
     Bricks::SafeObj<Hdl> _hdl;
     std::atomic<uint64_t> _connectionId = {};
     std::atomic<Websocket::State> _state = Websocket::State::Disconnected;
+    std::atomic_bool _ignoreCloseEvent = false;
 };
 
 class EndPoint::TlsOn : public Impl<asio_tls_client>
@@ -165,31 +165,9 @@ public:
            const std::shared_ptr<Bricks::Logger>& logger) noexcept(false);
 };
 
-class EndPoint::Listener : public Websocket::Listener
-{
-public:
-    Listener() = default;
-    void add(Websocket::Listener* listener) { _listeners.add(listener); }
-    void remove(Websocket::Listener* listener) { _listeners.remove(listener); }
-    // impl. of WebsocketListener
-    void onStateChanged(uint64_t socketId, uint64_t connectionId,
-                        Websocket::State state) final;
-    void onError(uint64_t socketId, uint64_t connectionId,
-                 const Websocket::Error& error) final;
-    void onTextMessage(uint64_t socketId, uint64_t connectionId,
-                       const std::string_view& message) final;
-    void onBinaryMessage(uint64_t socketId, uint64_t connectionId,
-                         const Bricks::Blob& message) final;
-    void onPong(uint64_t socketId, uint64_t connectionId,
-                const Bricks::Blob& payload) final;
-private:
-    Bricks::Listeners<Websocket::Listener*> _listeners;
-};
-
 EndPoint::EndPoint(const std::shared_ptr<ServiceProvider>& serviceProvider,
                    const std::shared_ptr<Bricks::Logger>& logger)
     : Bricks::LoggableS<Websocket::EndPoint>(logger)
-    , _listener(std::make_shared<Listener>())
     , _tlsOn(std::make_shared<TlsOn>(id(), serviceProvider, logger))
     , _tlsOff(std::make_shared<TlsOff>(id(), serviceProvider, logger))
 {
@@ -202,14 +180,9 @@ EndPoint::~EndPoint()
     std::atomic_store(&_active, std::shared_ptr<Api>());
 }
 
-void EndPoint::addListener(Websocket::Listener* listener)
+void EndPoint::setListener(const std::shared_ptr<Websocket::Listener>& listener)
 {
-    _listener->add(listener);
-}
-
-void EndPoint::removeListener(Websocket::Listener* listener)
-{
-    _listener->remove(listener);
+    std::atomic_store(&_listener, listener);
 }
 
 bool EndPoint::open(Websocket::Options options, uint64_t connectionId)
@@ -217,7 +190,7 @@ bool EndPoint::open(Websocket::Options options, uint64_t connectionId)
     close();
     if (auto config = Config::create(std::move(options))) {
         auto active = config.secure() ? _tlsOn : _tlsOff;
-        if (active->open(config, connectionId, _listener)) {
+        if (active->open(config, connectionId, std::atomic_load(&_listener))) {
             std::atomic_store(&_active, std::move(active));
             return true;
         }
@@ -372,7 +345,7 @@ void EndPoint::Impl<TClientType>::close()
             auto hdl = _hdl.take();
             if (!hdl.expired()) {
                 // disable close handler
-                _client.set_close_handler(nullptr);
+                _ignoreCloseEvent = true;
                 try {
                     const auto reason = websocketpp::close::status::get_string(_closeCode);
                     _client.close(hdl, _closeCode, reason);
@@ -381,7 +354,7 @@ void EndPoint::Impl<TClientType>::close()
                     // ignore of failures during closing
                 }
                 // and restore it again
-                _client.set_close_handler(bind(&Impl::onClose, this, _1));
+                _ignoreCloseEvent = false;
             }
         }
         setState(Websocket::State::Disconnected);
@@ -405,6 +378,12 @@ template <class TClientType>
 bool EndPoint::Impl<TClientType>::ping(const Bricks::Blob& payload)
 {
     return send<Websocket::Failure::Ping, _ping>(payload);
+}
+
+template <class TClientType>
+void EndPoint::Impl<TClientType>::setTlsInitHandler(tls_init_handler handler)
+{
+    _client.set_tls_init_handler(std::move(handler));
 }
 
 template <class TClientType>
@@ -628,8 +607,10 @@ void EndPoint::Impl<TClientType>::onPong(const Hdl& hdl, std::string payload)
 template <class TClientType>
 void EndPoint::Impl<TClientType>::onClose(const Hdl&)
 {
-    updateState();
-    _hdl({});
+    if (!_ignoreCloseEvent) {
+        updateState();
+        _hdl({});
+    }
 }
 
 EndPoint::TlsOn::TlsOn(uint64_t id,
@@ -637,12 +618,12 @@ EndPoint::TlsOn::TlsOn(uint64_t id,
                        const std::shared_ptr<Bricks::Logger>& logger) noexcept(false)
     : Impl<asio_tls_client>(id, serviceProvider, logger)
 {
-    client().set_tls_init_handler(bind(&TlsOn::onInitTls, this, _1));
+    setTlsInitHandler(bind(&TlsOn::onInitTls, this, _1));
 }
 
 EndPoint::TlsOn::~TlsOn()
 {
-    client().set_tls_init_handler(nullptr);
+    setTlsInitHandler(nullptr);
 }
 
 std::shared_ptr<SSLCtx> EndPoint::TlsOn::onInitTls(const Hdl&)
@@ -660,41 +641,6 @@ EndPoint::TlsOff::TlsOff(uint64_t id,
                          const std::shared_ptr<Bricks::Logger>& logger) noexcept(false)
     : Impl<asio_client>(id, serviceProvider, logger)
 {
-}
-
-void EndPoint::Listener::onStateChanged(uint64_t socketId, uint64_t connectionId,
-                                        Websocket::State state)
-{
-    _listeners.invoke(&Websocket::Listener::onStateChanged, socketId,
-                      connectionId, state);
-}
-
-void EndPoint::Listener::onError(uint64_t socketId, uint64_t connectionId,
-                                 const Websocket::Error& error)
-{
-    _listeners.invoke(&Websocket::Listener::onError, socketId,
-                      connectionId, error);
-}
-
-void EndPoint::Listener::onTextMessage(uint64_t socketId, uint64_t connectionId,
-                                       const std::string_view& message)
-{
-    _listeners.invoke(&Websocket::Listener::onTextMessage,
-                      socketId, connectionId, message);
-}
-
-void EndPoint::Listener::onBinaryMessage(uint64_t socketId, uint64_t connectionId,
-                                         const Bricks::Blob& message)
-{
-    _listeners.invoke(&Websocket::Listener::onBinaryMessage,
-                      socketId, connectionId, message);
-}
-
-void EndPoint::Listener::onPong(uint64_t socketId, uint64_t connectionId,
-                                const Bricks::Blob& payload)
-{
-    _listeners.invoke(&Websocket::Listener::onPong,
-                      socketId, connectionId, payload);
 }
 
 } // namespace Tpp
