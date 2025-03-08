@@ -23,7 +23,6 @@ class MessageBlob : public Bricks::Blob
 public:
     MessageBlob(MessagePtr message);
     ~MessageBlob() final { _message->recycle(); }
-    static std::shared_ptr<MessageBlob> make(MessagePtr message);
     // impl. of Bricks::Blob
     size_t size() const noexcept final;
     const uint8_t* data() const noexcept final;
@@ -38,27 +37,22 @@ inline MessageBlob<MessagePtr>::MessageBlob(MessagePtr message)
 }
 
 template<class MessagePtr>
-inline std::shared_ptr<MessageBlob<MessagePtr>> MessageBlob<MessagePtr>::
-    make(MessagePtr message)
-{
-    if (message) {
-        return std::make_shared<MessageBlob<MessagePtr>>(std::move(message));
-    }
-    return {};
-}
-
-template<class MessagePtr>
 inline size_t MessageBlob<MessagePtr>::size() const noexcept
 {
-    const auto& payload = _message->get_raw_payload();
-    return payload.size();
+    if (_message) {
+        return _message->get_raw_payload().size();
+    }
+    return 0U;
 }
 
 template<class MessagePtr>
 inline const uint8_t* MessageBlob<MessagePtr>::data() const noexcept
 {
-    const auto& payload = _message->get_raw_payload();
-    return reinterpret_cast<const uint8_t*>(payload.data());
+    if (_message) {
+        const auto& payload = _message->get_raw_payload();
+        return reinterpret_cast<const uint8_t*>(payload.data());
+    }
+    return nullptr;
 }
 
 } // namespace Tpp

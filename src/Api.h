@@ -33,9 +33,9 @@ public:
     virtual std::string host() const = 0;
     virtual Websocket::State state() const = 0;
     virtual void destroy() = 0;
-    virtual bool sendBinary(const std::shared_ptr<Bricks::Blob>& binary) = 0;
+    virtual bool sendBinary(const Bricks::Blob& binary) = 0;
     virtual bool sendText(std::string_view text) = 0;
-    virtual bool ping(const std::shared_ptr<Bricks::Blob>& payload) = 0;
+    virtual bool ping(const Bricks::Blob& payload) = 0;
 };
 
 } // namespace Tpp
