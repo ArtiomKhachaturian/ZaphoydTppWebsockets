@@ -23,6 +23,7 @@ class MessageBlob : public Bricks::Blob
 public:
     MessageBlob(MessagePtr message);
     ~MessageBlob() final { _message->recycle(); }
+    static std::shared_ptr<MessageBlob> make(MessagePtr message);
     // impl. of Bricks::Blob
     size_t size() const noexcept final;
     const uint8_t* data() const noexcept final;
@@ -34,6 +35,16 @@ template<class MessagePtr>
 inline MessageBlob<MessagePtr>::MessageBlob(MessagePtr message)
     : _message(std::move(message))
 {
+}
+
+template<class MessagePtr>
+inline std::shared_ptr<MessageBlob<MessagePtr>> MessageBlob<MessagePtr>::
+    make(MessagePtr message)
+{
+    if (message) {
+        return std::make_shared<MessageBlob<MessagePtr>>(std::move(message));
+    }
+    return {};
 }
 
 template<class MessagePtr>

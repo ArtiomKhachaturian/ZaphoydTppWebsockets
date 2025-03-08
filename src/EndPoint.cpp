@@ -51,6 +51,17 @@ private:
     Bricks::SafeObj<std::string, std::mutex> _logBuffer;
 };
 
+class StringBlob : public Bricks::Blob
+{
+public:
+    StringBlob(std::string payload);
+    // impl. of Bricks::Blob
+    size_t size() const noexcept final { return _payload.size(); }
+    const uint8_t* data() const noexcept final;
+private:
+    const std::string _payload;
+};
+
 const std::string_view g_logCategory("WebsocketTPP");
 
 }
@@ -79,6 +90,7 @@ public:
     Websocket::State state() const final { return _state; }
     bool sendBinary(const std::shared_ptr<Bricks::Blob>& binary) final;
     bool sendText(std::string_view text) final;
+    bool ping(const std::shared_ptr<Bricks::Blob>& payload) final;
     void destroy() final;
 protected:
     Impl(uint64_t socketId, 
@@ -106,8 +118,8 @@ protected:
 private:
     static std::string toText(MessagePtr message);
     static MessagePtr toMessage(std::string_view text);
+    template<bool ping = false>
     static MessagePtr toMessage(const std::shared_ptr<Bricks::Blob>& binary);
-    static std::string formatLoggerId(uint64_t id);
     bool active() const noexcept { return !_destroyed; }
     // return true if state changed
     bool setState(Websocket::State state);
@@ -120,10 +132,13 @@ private:
     void onFail(const Hdl& hdl);
     void onOpen(const Hdl& hdl);
     void onMessage(const Hdl& hdl, MessagePtr message);
+    void onPong(const Hdl& hdl, std::string payload);
     void onClose(const Hdl& hdl);
 private:
     static constexpr auto _text = websocketpp::frame::opcode::value::text;
     static constexpr auto _binary = websocketpp::frame::opcode::value::binary;
+    static constexpr auto _ping = websocketpp::frame::opcode::value::ping;
+    static constexpr auto _pong = websocketpp::frame::opcode::value::pong;
     static constexpr uint16_t _closeCode = Websocket::CloseCode::Normal;
     const uint64_t _socketId;
     const uint64_t _connectionId;
@@ -174,6 +189,8 @@ public:
                        const std::string_view& message) final;
     void onBinaryMessage(uint64_t socketId, uint64_t connectionId,
                          const std::shared_ptr<Bricks::Blob>& message) final;
+    void onPong(uint64_t socketId, uint64_t connectionId,
+                const std::shared_ptr<Bricks::Blob>& payload) final;
 private:
     Bricks::Listeners<Websocket::Listener*> _listeners;
 };
@@ -265,6 +282,16 @@ bool EndPoint::sendText(std::string_view text)
     return false;
 }
 
+bool EndPoint::ping(const std::shared_ptr<Bricks::Blob>& payload)
+{
+    LOCK_READ_SAFE_OBJ(_impl);
+    if (const auto& impl = _impl.constRef()) {
+        return impl->ping(payload);
+    }
+    return false;
+}
+
+
 std::shared_ptr<Api> EndPoint::createImpl(Websocket::Options options,
                                           uint64_t connectionId) const
 {
@@ -313,6 +340,7 @@ EndPoint::Impl<TClientType>::Impl(uint64_t socketId, uint64_t connectionId,
     // Register our handlers
     _client.set_socket_init_handler(bind(&Impl::onInit, this, _1));
     _client.set_message_handler(bind(&Impl::onMessage, this, _1, _2));
+    _client.set_pong_handler(bind(&Impl::onPong, this, _1, _2));
     _client.set_open_handler(bind(&Impl::onOpen, this, _1));
     _client.set_close_handler(bind(&Impl::onClose, this, _1));
     _client.set_fail_handler(bind(&Impl::onFail, this, _1));
@@ -326,6 +354,7 @@ EndPoint::Impl<TClientType>::~Impl()
 {
     _client.set_socket_init_handler(nullptr);
     _client.set_message_handler(nullptr);
+    _client.set_pong_handler(nullptr);
     _client.set_open_handler(nullptr);
     _client.set_fail_handler(nullptr);
     _client.set_close_handler(nullptr);
@@ -392,6 +421,24 @@ bool EndPoint::Impl<TClientType>::sendBinary(const std::shared_ptr<Bricks::Blob>
         }
         catch (const SysError& e) {
             notifyAboutError(Websocket::Failure::WriteBinary, e);
+        }
+    }
+    return false;
+}
+
+template <class TClientType>
+bool EndPoint::Impl<TClientType>::ping(const std::shared_ptr<Bricks::Blob>& payload)
+{
+    if (active()) {
+        try {
+            _client.send(hdl(), toMessage<true>(payload));
+            return true;
+        }
+        catch (const websocketpp::exception& e) {
+            notifyAboutError(Websocket::Failure::Ping, e);
+        }
+        catch (const SysError& e) {
+            notifyAboutError(Websocket::Failure::Ping, e);
         }
     }
     return false;
@@ -511,10 +558,11 @@ typename EndPoint::Impl<TClientType>::MessagePtr
 }
 
 template <class TClientType>
+template<bool ping>
 typename EndPoint::Impl<TClientType>::MessagePtr
     EndPoint::Impl<TClientType>::toMessage(const std::shared_ptr<Bricks::Blob>& binary)
 {
-    auto message = std::make_shared<Message>(nullptr, _binary, 0U);
+    auto message = std::make_shared<Message>(nullptr, ping ? _ping :  _binary, 0U);
     if (binary) {
         // overhead - deep copy of input buffer,
         // Websocketpp doesn't supports of buffers abstraction,
@@ -529,13 +577,6 @@ typename EndPoint::Impl<TClientType>::MessagePtr
         payload.assign(data, binary->size());
     }
     return message;
-}
-
-
-template <class TClientType>
-std::string EndPoint::Impl<TClientType>::formatLoggerId(uint64_t id)
-{
-    return "WebsocketTpp (id #" + std::to_string(id) + ")";
 }
 
 template <class TClientType>
@@ -638,12 +679,22 @@ void EndPoint::Impl<TClientType>::onMessage(const Hdl& hdl, MessagePtr message)
                 break;
             case _binary:
                 _listener->onBinaryMessage(socketId(), connectionId(),
-                                           std::make_shared<MessageBlobImpl>(std::move(message)));
+                                           MessageBlobImpl::make(std::move(message)));
+            case _pong:
+                _listener->onPong(socketId(), connectionId(),
+                                  MessageBlobImpl::make(std::move(message)));
                 break;
             default:
                 break;
         }
     }
+}
+
+template <class TClientType>
+void EndPoint::Impl<TClientType>::onPong(const Hdl& hdl, std::string payload)
+{
+    _listener->onPong(socketId(), connectionId(),
+                      std::make_shared<StringBlob>(std::move(payload)));
 }
 
 template <class TClientType>
@@ -722,6 +773,14 @@ void EndPoint::Listener::onBinaryMessage(uint64_t socketId, uint64_t connectionI
                       socketId, connectionId, message);
 }
 
+void EndPoint::Listener::onPong(uint64_t socketId, uint64_t connectionId,
+                                const std::shared_ptr<Bricks::Blob>& payload)
+{
+    Websocket::Listener::onPong(socketId, connectionId, payload);
+    _listeners.invoke(&Websocket::Listener::onPong,
+                      socketId, connectionId, payload);
+}
+
 } // namespace Tpp
 
 namespace {
@@ -772,6 +831,16 @@ void LogStream::sendBufferToLog()
         log(_severity, _logBuffer.constRef(), g_logCategory);
         _logBuffer->clear();
     }
+}
+
+StringBlob::StringBlob(std::string payload)
+    : _payload(std::move(payload))
+{
+}
+
+const uint8_t* StringBlob::data() const noexcept
+{
+    return reinterpret_cast<const uint8_t*>(_payload.data());
 }
 
 }

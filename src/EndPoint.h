@@ -43,9 +43,9 @@ public:
     void close() final;
     std::string host() const final;
     Websocket::State state() const final;
-    // impl. of CommandSender
     bool sendBinary(const std::shared_ptr<Bricks::Blob>& binary) final;
     bool sendText(std::string_view text) final;
+    bool ping(const std::shared_ptr<Bricks::Blob>& payload = {}) final;
 private:
     std::shared_ptr<Api> createImpl(Websocket::Options options,
                                     uint64_t connectionId) const;
