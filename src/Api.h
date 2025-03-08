@@ -13,26 +13,31 @@
 // limitations under the License.
 #pragma once // Api.h
 #include <string_view>
+#include <memory>
 
 namespace Bricks {
 class Blob;
 }
 
 namespace Websocket {
+class Listener;
 enum class State;
 }
 
 namespace Tpp
 {
 
+class Config;
+
 class Api
 {
 public:
     virtual ~Api() = default;
-    virtual bool open() = 0;
+    virtual bool open(const Config& config, uint64_t connectionId,
+                      const std::shared_ptr<Websocket::Listener>& listener) = 0;
     virtual std::string host() const = 0;
     virtual Websocket::State state() const = 0;
-    virtual void destroy() = 0;
+    virtual void close() = 0;
     virtual bool sendBinary(const Bricks::Blob& binary) = 0;
     virtual bool sendText(std::string_view text) = 0;
     virtual bool ping(const Bricks::Blob& payload) = 0;
