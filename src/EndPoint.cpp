@@ -138,14 +138,13 @@ private:
     const uint64_t _socketId;
     const std::shared_ptr<ServiceProvider> _serviceProvider;
     Bricks::Listener<std::shared_ptr<Websocket::Listener>> _listener;
-    LogStream _errorLogStream;
-    LogStream _accessLogStream;
-    Client _client;
+    LogStream _errorLog, _accessLog;
     Bricks::SafeObj<Config> _config;
     Bricks::SafeObj<Hdl> _hdl;
     std::atomic<uint64_t> _connectionId = {};
     std::atomic<Websocket::State> _state = Websocket::State::Disconnected;
     std::atomic_bool _ignoreCloseEvent = false;
+    Client _client;
 };
 
 class EndPoint::TlsOn : public Impl<asio_tls_client>
@@ -256,13 +255,13 @@ EndPoint::Impl<TClientType>::Impl(uint64_t socketId,
                                   const std::shared_ptr<Bricks::Logger>& logger) noexcept(false)
     : _socketId(socketId)
     , _serviceProvider(serviceProvider)
-    , _errorLogStream(Bricks::LoggingSeverity::Error, logger)
-    , _accessLogStream(Bricks::LoggingSeverity::Verbose, logger)
+    , _errorLog(Bricks::LoggingSeverity::Error, logger)
+    , _accessLog(Bricks::LoggingSeverity::Verbose, logger)
 {
     assert(_serviceProvider); // service provider must not be null
     // Initialize ASIO
-    _client.get_elog().set_ostream(_errorLogStream);
-    _client.get_alog().set_ostream(_accessLogStream);
+    _client.get_elog().set_ostream(_errorLog);
+    _client.get_alog().set_ostream(_accessLog);
     _client.init_asio(_serviceProvider->service());
     // Register our handlers
     _client.set_socket_init_handler(bind(&Impl::onInit, this, _1));
@@ -389,8 +388,8 @@ void EndPoint::Impl<TClientType>::setTlsInitHandler(tls_init_handler handler)
 template <class TClientType>
 void EndPoint::Impl<TClientType>::notifyAboutError(const Websocket::Error& error)
 {
-    if (_errorLogStream.canLogError()) {
-        _errorLogStream.logError(toString(error), g_logCategory);
+    if (_errorLog.canLogError()) {
+        _errorLog.logError(toString(error), g_logCategory);
     }
     _listener.invoke(&Websocket::Listener::onError, socketId(), connectionId(), error);
 }
