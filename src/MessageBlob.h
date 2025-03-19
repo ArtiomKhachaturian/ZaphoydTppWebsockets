@@ -23,8 +23,8 @@ class MessageBlob : public Bricks::Blob
 public:
     MessageBlob(const MessagePtr& message);
     // impl. of Bricks::Blob
-    size_t size() const noexcept final;
-    const uint8_t* data() const noexcept final;
+    size_t size() const final;
+    const uint8_t* data() const final;
 private:
     const MessagePtr _message;
 };
@@ -36,7 +36,7 @@ inline MessageBlob<MessagePtr>::MessageBlob(const MessagePtr& message)
 }
 
 template<class MessagePtr>
-inline size_t MessageBlob<MessagePtr>::size() const noexcept
+inline size_t MessageBlob<MessagePtr>::size() const
 {
     if (_message) {
         return _message->get_raw_payload().size();
@@ -45,7 +45,7 @@ inline size_t MessageBlob<MessagePtr>::size() const noexcept
 }
 
 template<class MessagePtr>
-inline const uint8_t* MessageBlob<MessagePtr>::data() const noexcept
+inline const uint8_t* MessageBlob<MessagePtr>::data() const
 {
     if (_message) {
         const auto& payload = _message->get_raw_payload();

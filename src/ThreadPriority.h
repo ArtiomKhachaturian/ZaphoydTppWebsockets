@@ -29,15 +29,47 @@ enum class ThreadPriority : int
     Highest  = THREAD_PRIORITY_HIGHEST,
     Realtime = THREAD_PRIORITY_TIME_CRITICAL
 #else
-    Auto     = 0,
-    Low      = 1,
-    Normal   = 2,
-    High     = 3,
-    Highest  = 4,
+    /**
+     * @brief Automatically determine the thread priority.
+     */
+    Auto = 0,
+
+    /**
+     * @brief Low thread priority.
+     */
+    Low = 1,
+
+    /**
+     * @brief Normal thread priority.
+     */
+    Normal = 2,
+
+    /**
+     * @brief High thread priority.
+     */
+    High = 3,
+
+    /**
+     * @brief Highest thread priority.
+     */
+    Highest = 4,
+
+    /**
+     * @brief Real-time thread priority.
+     */
     Realtime = 5
 #endif
 };
 
+/**
+ * @brief Converts a `ThreadPriority` value to its string representation.
+ *
+ * This function provides a human-readable string for each thread priority level.
+ * It aids in debugging and logging operations related to thread management.
+ *
+ * @param priority The `ThreadPriority` enum value to convert.
+ * @return A constant character pointer representing the string equivalent of the priority level.
+ */
 const char* ToString(ThreadPriority priority);
 
 } // namespace Tpp
