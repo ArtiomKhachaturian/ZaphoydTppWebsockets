@@ -56,8 +56,8 @@ class StringBlob : public Bricks::Blob
 public:
     StringBlob(std::string payload);
     // impl. of Bricks::Blob
-    size_t size() const noexcept final { return _payload.size(); }
-    const uint8_t* data() const noexcept final;
+    size_t size() const final { return _payload.size(); }
+    const uint8_t* data() const final;
 private:
     const std::string _payload;
 };
@@ -299,33 +299,36 @@ bool EndPoint::Impl<TClientType>::open(const Config& config,
                                        uint64_t connectionId,
                                        const std::shared_ptr<Websocket::Listener>& listener)
 {
-    websocketpp::lib::error_code ec;
-    const auto connection = _client.get_connection(config, ec);
-    if (ec) {
-        notifyAboutError(Websocket::Failure::NoConnection, ec);
-    }
-    else {
+    _listener = listener; // for handling of 'connecting' state
+    Websocket::Failure expectedFailure = Websocket::Failure::NoConnection;
+    try {
+        websocketpp::lib::error_code ec;
+        const auto connection = _client.get_connection(config, ec);
+        if (ec) {
+            throw SysError(std::move(ec));
+        }
         _client.set_user_agent(config.options()._userAgent);
-        try {
-            const auto& extraHeaders = config.options()._extraHeaders;
-            for (auto it = extraHeaders.begin(); it != extraHeaders.end(); ++it) {
-                connection->append_header(it->first, it->second);
-            }
-            _config(config);
-            _connectionId = connectionId;
-            _listener = listener;
-            _client.connect(connection);
+        expectedFailure = Websocket::Failure::CustomHeader;
+        const auto& extraHeaders = config.options()._extraHeaders;
+        for (auto it = extraHeaders.begin(); it != extraHeaders.end(); ++it) {
+            connection->append_header(it->first, it->second);
         }
-        catch(const websocketpp::exception& e) {
-            notifyAboutError(Websocket::Failure::CustomHeader, e);
-            return false;
-        }
-        catch (const SysError& e) {
-            notifyAboutError(Websocket::Failure::CustomHeader, e);
-            return false;
-        }
+        _config(config);
+        _connectionId = connectionId;
+        _client.connect(connection);
+        return true;
     }
-    return !ec;
+    catch(const websocketpp::exception& e) {
+        setState(Websocket::State::Disconnected);
+        _listener.reset();
+        notifyAboutError(expectedFailure, e);
+    }
+    catch (const SysError& e) {
+        setState(Websocket::State::Disconnected);
+        _listener.reset();
+        notifyAboutError(expectedFailure, e);
+    }
+    return false;
 }
 
 template <class TClientType>
@@ -699,7 +702,7 @@ StringBlob::StringBlob(std::string payload)
 {
 }
 
-const uint8_t* StringBlob::data() const noexcept
+const uint8_t* StringBlob::data() const
 {
     return reinterpret_cast<const uint8_t*>(_payload.data());
 }
