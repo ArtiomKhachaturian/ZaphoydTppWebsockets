@@ -16,9 +16,6 @@
 #include "ServiceProvider.h"
 #include "WebsocketTls.h"
 #include "ThreadExecution.h"
-#ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-#include "SafeObj.h"
-#endif
 #include <optional>
 
 using namespace Tpp;
@@ -45,13 +42,8 @@ public:
     ServiceImpl(const std::shared_ptr<Bricks::Logger>& logger = {});
     ~ServiceImpl() final { stopExecution(); }
     // impl. of WebsocketTppServiceProvider
-#ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-    void startService() final;
-    void stopService() final;
-#else
     void startService() final { startExecution(); }
     void stopService() final { stopExecution(); }
-#endif
     IOSrv* service() final { return _service.get(); }
     std::shared_ptr<SSLCtx> createSslContext(const Websocket::Tls& tls) const final;
 protected:
@@ -63,16 +55,10 @@ private:
     static const auto& sslErrorCategory() { return websocketpp::lib::asio::error::get_ssl_category(); }
 private:
     const std::shared_ptr<IOSrv> _service;
-#ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-    Bricks::SafeObj<uint64_t, std::mutex> _counter = 0U;
-#endif
 };
 
 ZaphoydTppFactory::ZaphoydTppFactory(const std::shared_ptr<Bricks::Logger>& logger)
     : _logger(logger)
-#ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-    , _serviceProvider(std::make_shared<ServiceImpl>(logger))
-#endif
 {
 }
 
@@ -82,11 +68,7 @@ ZaphoydTppFactory::~ZaphoydTppFactory()
 
 std::shared_ptr<ServiceProvider> ZaphoydTppFactory::serviceProvider() const
 {
-#ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-    return _serviceProvider;
-#else
     return std::make_shared<ServiceImpl>(_logger);
-#endif
 }
 
 std::unique_ptr<Websocket::EndPoint> ZaphoydTppFactory::create() const
@@ -99,24 +81,6 @@ ZaphoydTppFactory::ServiceImpl::ServiceImpl(const std::shared_ptr<Bricks::Logger
     , _service(std::make_shared<IOSrv>())
 {
 }
-
-#ifdef WEBSOCKETS_TPP_SHARED_IO_SERVICE
-void ZaphoydTppFactory::ServiceImpl::startService()
-{
-    LOCK_WRITE_SAFE_OBJ(_counter);
-    if (0U == _counter.ref()++) {
-        startExecution();
-    }
-}
-
-void ZaphoydTppFactory::ServiceImpl::stopService()
-{
-    LOCK_WRITE_SAFE_OBJ(_counter);
-    if (_counter.constRef() && 1U == _counter.ref()--) {
-        stopExecution();
-    }
-}
-#endif
 
 std::shared_ptr<SSLCtx> ZaphoydTppFactory::ServiceImpl::
     createSslContext(const Websocket::Tls& tls) const
