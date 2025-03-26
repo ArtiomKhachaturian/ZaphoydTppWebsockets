@@ -89,7 +89,7 @@ public:
     bool open(const Config& config, uint64_t connectionId,
               const std::shared_ptr<Websocket::Listener>& listener) final;
     std::string host() const final;
-    Websocket::State state() const final { return _state; }
+    Websocket::State state() const final { return _state(); }
     void close() final;
     bool sendBinary(const Bricks::Blob& binary) final;
     bool sendText(std::string_view text) final;
@@ -141,8 +141,8 @@ private:
     LogStream _errorLog, _accessLog;
     Bricks::SafeObj<Config> _config;
     Bricks::SafeObj<Hdl> _hdl;
+    Bricks::SafeObj<Websocket::State> _state = Websocket::State::Disconnected;
     std::atomic<uint64_t> _connectionId = {};
-    std::atomic<Websocket::State> _state = Websocket::State::Disconnected;
     std::atomic_bool _ignoreCloseEvent = false;
     Client _client;
 };
@@ -497,11 +497,34 @@ bool EndPoint::Impl<TClientType>::send(const TObj& obj)
 template <class TClientType>
 bool EndPoint::Impl<TClientType>::setState(Websocket::State state)
 {
-    if (state != _state.exchange(state)) {
-        _listener.invoke(&Websocket::Listener::onStateChanged, socketId(), connectionId(), state);
-        return true;
+    bool changed = false;
+    {
+        using namespace Websocket;
+        LOCK_WRITE_SAFE_OBJ(_state);
+        if (state != _state.constRef()) {
+            switch (_state.constRef()) {
+                case State::Connecting:
+                    changed = true;
+                    break;
+                case State::Connected:
+                    changed = State::Connecting != state;
+                    break;
+                case State::Disconnecting:
+                    changed = true;
+                    break;
+                case State::Disconnected:
+                    changed = State::Disconnecting != state;
+                    break;
+            }
+            if (changed) {
+                _state = state;
+            }
+        }
     }
-    return false;
+    if (changed) {
+        _listener.invoke(&Websocket::Listener::onStateChanged, socketId(), connectionId(), state);
+    }
+    return changed;
 }
 
 template <class TClientType>
