@@ -104,6 +104,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/service
     ${CMAKE_SOURCE_DIR}/websockets_api/include
     ${CMAKE_SOURCE_DIR}/bricks/include
+    ${CMAKE_SOURCE_DIR}/bricks/include/listeners
     ${CMAKE_SOURCE_DIR}/bricks/include/logger
     ${CMAKE_SOURCE_DIR}/bricks/include/threadsafety
     ${TPP_HDRS_DIR}
