@@ -1,6 +1,6 @@
 # ZaphoydTppWebsockets
 
-**ZaphoydTppWebsockets** is a minimal C++ WebSocket client example using the [websocketpp](https://github.com/zaphoyd/websocketpp) library.  
+**ZaphoydTppWebsockets** is a minimal C++ WebSocket client wrapper library using the [websocketpp](https://github.com/zaphoyd/websocketpp) library.  
 It demonstrates how to implement a simple WebSocket client with `standalone Asio` (no Boost dependency) and can be used as a base for integration into other C++ applications.
 
 ## Features
