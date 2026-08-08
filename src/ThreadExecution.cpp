@@ -23,6 +23,7 @@
 #endif
 #include <algorithm> // for std::max
 #endif
+#include <cstring>
 #include <functional>
 
 namespace {
