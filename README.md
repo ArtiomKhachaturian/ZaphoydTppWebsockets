@@ -10,6 +10,7 @@ It demonstrates how to implement a simple WebSocket client with `standalone Asio
 - Text and binary message support
 - Based on `standalone Asio` for minimal dependencies
 - Clean and compact codebase
+- Thread safety
 - CMake-based build system
 
 ## Requirements
