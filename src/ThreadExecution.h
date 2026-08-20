@@ -144,11 +144,13 @@ private:
     ThreadExecution(ThreadExecution&&) = delete;
 
     /**
-     * @brief Joins and destroys the thread.
+     * @brief Joins (or detaches, if called from the thread itself) and destroys a thread.
      *
-     * Ensures proper cleanup of thread resources during destruction.
+     * Operates on the given thread rather than the `_thread` member directly, so callers
+     * can extract `_thread` under its lock and invoke this without holding that lock across
+     * the (possibly blocking) join.
      */
-    void joinAndDestroyThread();
+    void joinAndDestroyThread(std::thread& thread);
 
     /**
      * @brief Executes the thread routine.
@@ -181,8 +183,9 @@ private:
     /// @brief thread object.
     Bricks::SafeObj<std::thread, std::mutex> _thread;
 
-    /// @brief Indicates if the thread has been started.
-    bool _started = false;
+    /// @brief Number of outstanding startExecution() calls not yet matched by
+    /// stopExecution(); the thread is only actually stopped when this reaches 0.
+    unsigned _startCount = 0U;
 };
 
 } // namespace Tpp

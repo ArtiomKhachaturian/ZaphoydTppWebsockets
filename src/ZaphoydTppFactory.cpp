@@ -26,7 +26,7 @@ inline auto makeBuffer(const std::string& buffer) {
     return websocketpp::lib::asio::const_buffer(buffer.data(), buffer.size());
 }
 
-inline auto format(bool pem) {\
+inline auto format(bool pem) {
     if (pem) {
         return SSLCtx::file_format::pem;
     }
@@ -35,12 +35,12 @@ inline auto format(bool pem) {\
 
 }
 
-class ZaphoydTppFactory::ServiceImpl : public ServiceProvider,
-                                       private ThreadExecution
+class ZaphoydTppFactory::ServiceImpl final : public ServiceProvider,
+                                             private ThreadExecution
 {
 public:
     ServiceImpl(const std::shared_ptr<Bricks::Logger>& logger = {});
-    ~ServiceImpl() final { stopExecution(); }
+    ~ServiceImpl() override { stopExecution(); }
     // impl. of WebsocketTppServiceProvider
     void startService() final { startExecution(); }
     void stopService() final { stopExecution(); }

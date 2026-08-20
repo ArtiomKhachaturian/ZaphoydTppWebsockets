@@ -1,0 +1,8 @@
+{
+    global:
+        /* only sockets factory */
+        *ZaphoydTppFactory*;
+    local:
+        /* hidden */
+        *;
+};

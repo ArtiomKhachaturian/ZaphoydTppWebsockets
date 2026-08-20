@@ -81,28 +81,41 @@ ThreadExecution::ThreadExecution(std::string threadName,
 
 ThreadExecution::~ThreadExecution()
 {
-    LOCK_WRITE_SAFE_OBJ(_thread);
-    if (_started) {
-        joinAndDestroyThread();
-        _started = false;
-    }
+    stopExecution();
 }
 
 void ThreadExecution::startExecution(bool waitingUntilNotStarted)
 {
     try {
         LOCK_WRITE_SAFE_OBJ(_thread);
-        if (!_started) {
-            _thread = std::thread(std::bind(&ThreadExecution::execute, this));
-            _started = true;
+        if (0U == _startCount++) {
             if (waitingUntilNotStarted) {
-                while (!_thread->joinable()) {
+                // seq_cst store/load (the atomic_bool defaults) is sufficient to
+                // synchronize this single startup handshake with the spin loop below;
+                // no explicit memory_order or extra fence is needed.
+                std::atomic_bool running = false;
+                _thread = std::thread([this, &running]() {
+                    running = true;
+#if defined(__cpp_lib_atomic_wait) && __cpp_lib_atomic_wait >= 201907L
+                    running.notify_one();
+#endif
+                    execute();
+                });
+                while (!running.load()) {
+#if defined(__cpp_lib_atomic_wait) && __cpp_lib_atomic_wait >= 201907L
+                    running.wait(false);
+#else
                     std::this_thread::yield();
+#endif
                 }
+            }
+            else {
+                _thread = std::thread(std::bind(&ThreadExecution::execute, this));
             }
         }
     }
     catch(const std::system_error& e) {
+        --_startCount;
         if (canLogError()) {
             logError("Failed to start thread '" + GetThreadName() + "': " +
                      toString(e), g_logCategory);
@@ -112,18 +125,21 @@ void ThreadExecution::startExecution(bool waitingUntilNotStarted)
 
 void ThreadExecution::stopExecution()
 {
-    LOCK_WRITE_SAFE_OBJ(_thread);
-    if (_started) {
-        doStopThread();
-        joinAndDestroyThread();
-        _started = false;
+    std::thread threadToJoin;
+    {
+        LOCK_WRITE_SAFE_OBJ(_thread);
+        if (_startCount > 0U && 0U == --_startCount) {
+            doStopThread();
+            threadToJoin = _thread.take();
+        }
     }
+    joinAndDestroyThread(threadToJoin);
 }
 
 bool ThreadExecution::started() const noexcept
 {
     LOCK_READ_SAFE_OBJ(_thread);
-    return _started;
+    return _startCount > 0U;
 }
 
 bool ThreadExecution::active() const noexcept
@@ -132,17 +148,16 @@ bool ThreadExecution::active() const noexcept
     return _thread->joinable();
 }
 
-void ThreadExecution::joinAndDestroyThread()
+void ThreadExecution::joinAndDestroyThread(std::thread& thread)
 {
-    if (_thread->joinable()) {
+    if (thread.joinable()) {
         try {
-            if (std::this_thread::get_id() != _thread->get_id()) {
-                _thread->join();
+            if (std::this_thread::get_id() != thread.get_id()) {
+                thread.join();
             }
             else {
-                _thread->detach();
+                thread.detach();
             }
-            _thread = std::thread();
         }
         catch(const std::system_error& e) {
             if (canLogError()) {
