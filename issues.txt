@@ -1,0 +1,266 @@
+ZaphoydTppWebsockets — Code Review Findings
+=============================================
+
+Scope: this repo's own code only — include/*.h and src/*.{h,cpp} (9 headers + 4 sources,
+~2100 lines). The two git submodules, bricks/ and websockets_api/, are excluded from this
+review as requested; they are third-party/companion libraries maintained in their own
+repositories. Where a finding below depends on websocketpp's internal behavior, it was
+verified against the actual vendored websocketpp source (downloaded copy found at
+~/Documents/Builds/ZaphoydTppWebsockets/zaphoyd_tpp_src/websocketpp-master/), not guessed.
+
+Findings are ordered high to low severity.
+
+
+1. [HIGH — confirmed bug] Missing `break` makes every binary message also fire onPong
+--------------------------------------------------------------------------------------
+File: src/EndPoint.cpp, EndPoint::Impl<TClientType>::onMessage (~lines 601-623)
+
+    switch (message->get_opcode()) {
+        case _text:
+            _listener.invoke(&Websocket::Listener::onTextMessage, ...);
+            break;
+        case _binary:
+            _listener.invoke(&Websocket::Listener::onBinaryMessage,
+                             socketId(), connectionId(),
+                             MessageBlobImpl(message));
+        case _pong:                                    // <-- falls through from _binary
+            _listener.invoke(&Websocket::Listener::onPong,
+                             socketId(), connectionId(),
+                             MessageBlobImpl(message));
+            break;
+        default:
+            break;
+    }
+
+The `_binary` case has no `break;`, so control falls through into `_pong` and every binary
+message delivered to the application ALSO triggers `Listener::onPong` with a
+`MessageBlobImpl` wrapping the same message. Any consumer that treats onPong as "a pong
+control frame arrived" (e.g. for keepalive/RTT tracking) will be spuriously invoked on
+every binary data message.
+
+Additionally, this `case _pong:` branch inside onMessage is actually dead code for its
+stated purpose: verified in websocketpp/impl/connection_impl.hpp (handle_read_frame) that
+control frames (PONG included) never reach the `message_handler` at all — they are routed
+through `process_control_frame()` to the dedicated `pong_handler`, which this file already
+registers separately as `Impl::onPong` (see `_client.set_pong_handler(...)` in the
+constructor, and the standalone `onPong(const Hdl&, std::string payload)` method a few
+lines below onMessage). So this looks like a copy/paste artifact: the `case _pong:` branch
+was probably meant to be its own independent handler, not fallthrough from `_binary`.
+
+Fix: add `break;` after the `_binary` case. The `case _pong:` branch can then be deleted
+entirely from onMessage's switch since it is unreachable (PONG frames never arrive here).
+
+
+2. [HIGH — architecture flaw] Shared ServiceProvider isn't reference-counted across the
+   TLS / non-TLS sibling Impl instances
+--------------------------------------------------------------------------------------
+Files: src/EndPoint.h, src/EndPoint.cpp, src/ThreadExecution.cpp
+
+Each `Tpp::EndPoint` owns two `Impl` instances — `_tlsOn` (TLS) and `_tlsOff` (plaintext) —
+both constructed with the *same* `ServiceProvider` instance (see `EndPoint::EndPoint`,
+which passes one `serviceProvider` to both `TlsOn` and `TlsOff`). Each `Impl`'s constructor
+calls `serviceProvider->startService()` and its destructor calls
+`serviceProvider->stopService()`. These map to `ThreadExecution::startExecution()` /
+`stopExecution()`, which are guarded only by a plain `bool _started` flag — not a use-count:
+
+    void ThreadExecution::stopExecution()
+    {
+        LOCK_WRITE_SAFE_OBJ(_thread);
+        if (_started) {
+            doStopThread();       // -> io_service::stop() for ServiceImpl
+            joinAndDestroyThread();
+            _started = false;
+        }
+    }
+
+`EndPoint.h`'s member declaration order is `_tlsOn, _tlsOff, _listener, _active`, so on
+`~EndPoint()` the members are destroyed in *reverse* order: `_active`, `_listener`,
+`_tlsOff`, then `_tlsOn`. `_tlsOff` is therefore destroyed first, and its destructor
+(`~Impl()` -> `_serviceProvider->stopService()`) is the one that actually calls
+`io_service::stop()` (which aborts the io_service loop immediately, abandoning any queued
+handlers) and joins the shared background thread. `_tlsOn`'s subsequent `stopService()`
+call is then a silent no-op because `_started` is already false.
+
+`~EndPoint()`'s body does call `_tlsOn->close()` and `_tlsOff->close()` before member
+destruction runs, but websocketpp's close is not guaranteed to complete synchronously — it
+can involve an async close handshake / socket teardown that continues to run on the
+io_service thread. Because `_tlsOff`'s destructor can force-stop that *same, shared*
+io_service before `_tlsOn`'s in-flight close/cleanup work has finished, the TLS
+connection's outstanding cleanup (and vice versa, depending on which side is opened/closed
+last) can be cut off mid-flight.
+
+Fix: make the start/stop in ThreadExecution (or specifically in ServiceProvider/ServiceImpl)
+reference-counted so the underlying thread/io_service is only actually stopped once all
+owners have released it, or give each Impl (TlsOn/TlsOff) its own ServiceProvider instance
+(at the cost of two background threads per EndPoint instead of one shared thread).
+
+
+3. [MEDIUM — footgun] ThreadExecution's destructor can hang forever if a subclass forgets
+   to call stopExecution() first
+--------------------------------------------------------------------------------------
+File: src/ThreadExecution.cpp
+
+    ThreadExecution::~ThreadExecution()
+    {
+        LOCK_WRITE_SAFE_OBJ(_thread);
+        if (_started) {
+            joinAndDestroyThread();   // <-- no doStopThread() call here
+            _started = false;
+        }
+    }
+
+    void ThreadExecution::stopExecution()
+    {
+        LOCK_WRITE_SAFE_OBJ(_thread);
+        if (_started) {
+            doStopThread();           // <-- only stopExecution() calls this
+            joinAndDestroyThread();
+            _started = false;
+        }
+    }
+
+`stopExecution()` calls `doStopThread()` before joining; the destructor does not. In this
+codebase's only usage, `ZaphoydTppFactory::ServiceImpl::doExecuteInThread()` runs
+`io_service::run()` kept alive forever by `_client.start_perpetual()` (called in
+`Impl`'s constructor) — `run()` will never return on its own; only
+`ServiceImpl::doStopThread()` (`_service->stop()`) makes it return. `ServiceImpl` happens
+to do the right thing (`~ServiceImpl() final { stopExecution(); }`), so no hang occurs
+today. But `ThreadExecution`'s own doc-comment on `stopExecution()` ("This method must be
+called before destroying an instance of a derived class") makes clear this is a contract
+callers must remember to honor manually — the base class does not enforce or default to it.
+Any future subclass whose destructor does not proactively call `stopExecution()` first will
+have `~ThreadExecution()` block forever in `_thread->join()`.
+
+Fix: have `~ThreadExecution()` also call `doStopThread()` (or simply delegate the whole
+body to `stopExecution()`) so correctness doesn't depend on every subclass remembering to
+override its destructor.
+
+
+4. [MEDIUM — latent bug, currently inert] Manual message->recycle() violates websocketpp's
+   documented ownership contract
+--------------------------------------------------------------------------------------
+File: src/EndPoint.cpp, EndPoint::Impl<TClientType>::toText(MessagePtr message)
+
+    static std::string toText(MessagePtr message) {
+        if (message) {
+            auto text = std::move(message->get_raw_payload());
+            message->recycle();
+            return text;
+        }
+        return {};
+    }
+
+websocketpp's own doc-comment on `message::recycle()` (message_buffer/message.hpp) states:
+"Recycle must *only* be called by the message shared_ptr's destructor... Once recycled
+successfully, ownership of the memory has been passed to another system and must not be
+accessed again." At the point this code calls `message->recycle()`, the local `message`
+shared_ptr is not the last reference: verified in
+websocketpp/impl/connection_impl.hpp (connection::handle_read_frame) that the internal
+dispatcher keeps its own `msg` shared_ptr alive on its call stack for the entire duration
+of the `m_message_handler(m_connection_hdl, msg)` call — i.e. for the whole execution of
+onMessage()/toText(). Calling recycle() here is precisely the "not called by the
+destructor, other references still alive" case the contract forbids.
+
+This is currently harmless only because both `asio_client` and `asio_tls_client` configs
+(the two TClientType instantiations used in this file) resolve to
+`message_buffer::alloc::con_msg_manager` (verified in websocketpp/config/core_client.hpp),
+whose `recycle()` is hardcoded to always `return false` — i.e. today this call is a dead
+no-op. It becomes a real premature-buffer-reuse / use-after-free bug the moment this
+project (or a future websocketpp version/config change) switches to the pooling
+`message_buffer::pool` connection message manager, since that manager's recycle() actually
+hands the underlying buffer back for reuse while other shared_ptr references to it are
+still alive elsewhere.
+
+Fix: delete the manual `message->recycle()` call. It has no benefit today, and the
+shared_ptr's own destruction already performs recycling correctly per the documented
+contract once the last reference (including websocketpp's internal one) goes away.
+
+
+5. [LOW-MEDIUM — inconsistent error reporting] EndPoint::open() silently swallows
+   invalid-URI failures
+--------------------------------------------------------------------------------------
+File: src/EndPoint.cpp, EndPoint::open()
+
+    bool EndPoint::open(Websocket::Options options, uint64_t connectionId)
+    {
+        close();
+        if (auto config = Config::create(std::move(options))) {
+            auto active = config.secure() ? _tlsOn : _tlsOff;
+            if (active->open(config, connectionId, std::atomic_load(&_listener))) {
+                std::atomic_store(&_active, std::move(active));
+                return true;
+            }
+        }
+        return false;
+    }
+
+If `Config::create(options)` fails — e.g. an empty or malformed `options._host` — the
+function just returns `false` with no `Websocket::Listener::onError` notification. Every
+other failure path in this library (see `Impl::open()`'s catch blocks around
+`get_connection`/`connect`) reports failures via `notifyAboutError(...)` to the listener.
+An application relying solely on the listener for connection-failure diagnostics gets no
+signal at all for a bad URI/host — it only sees `open()`'s boolean return value, which the
+listener-driven parts of the API don't otherwise require callers to check synchronously.
+
+Fix: route this failure through the same onError notification path used elsewhere (may
+require a small refactor, e.g. notifying via `_tlsOff` or a small static helper, since no
+live Impl-specific "active" instance exists yet at this point).
+
+
+6. [LOW — dead logic] The waitingUntilNotStarted wait loop in startExecution() never
+   actually waits for anything
+--------------------------------------------------------------------------------------
+File: src/ThreadExecution.cpp, ThreadExecution::startExecution()
+
+    _thread = std::thread(std::bind(&ThreadExecution::execute, this));
+    _started = true;
+    if (waitingUntilNotStarted) {
+        while (!_thread->joinable()) {
+            std::this_thread::yield();
+        }
+    }
+
+A `std::thread` object is joinable as soon as its constructor returns successfully — that
+is what "joinable" means, and it does not imply the thread function has actually begun
+running yet. So `_thread->joinable()` is already `true` on the very first check right after
+`_thread = std::thread(...)`, and this loop never iterates. Despite the parameter name and
+doc-comment ("If true, waits until the thread is not already started"), it provides no real
+synchronization with `execute()`/`doExecuteInThread()` having actually begun executing on
+the new OS thread.
+
+Fix: either remove this dead loop (it currently does nothing), or replace it with a real
+handshake — e.g. an atomic flag or condition variable set from inside `execute()` once the
+thread body has actually started running — if the intended "wait until running" behavior is
+actually needed by callers.
+
+
+7. [LOW — design note, not a functional bug] Thread-per-EndPoint, started eagerly and
+   unconditionally
+--------------------------------------------------------------------------------------
+Files: src/ZaphoydTppFactory.cpp, src/EndPoint.cpp
+
+`ZaphoydTppFactory::create()` calls `serviceProvider()`, which constructs a brand new
+`ServiceImpl` (and thus a brand new Asio `io_service` + dedicated OS thread) for every
+`Tpp::EndPoint` created. Each `Impl`'s constructor unconditionally calls
+`_serviceProvider->startService()` (and `_client.start_perpetual()`) regardless of whether
+`open()` is ever subsequently called — so every `EndPoint` instance eagerly starts and
+keeps alive its own private "Highest" priority background thread for its entire lifetime,
+with no pooling or sharing of I/O threads across endpoints.
+
+This is a deliberate design choice, not an oversight — `git log -- CMakeLists.txt` shows a
+prior `SHARED_IO_SERVICE` CMake option that let all endpoints share one I/O thread was
+removed in commit "Remove shared I/O thread for stability purposes". Flagging this purely
+as a scalability/resource-usage consideration for applications that expect to create many
+concurrent `EndPoint` instances (thread-per-connection, all at elevated OS priority), not as
+something to change without first confirming the tradeoff that motivated its removal is
+still acceptable.
+
+
+Summary
+-------
+Definite, fix-now bug:      #1 (onMessage fallthrough)
+Real architectural risks:   #2 (non-refcounted shared ServiceProvider), #3 (destructor can
+                             hang for future subclasses), #4 (message recycle contract
+                             violation, latent)
+Minor correctness/quality:  #5 (missing error notification), #6 (dead wait loop)
+Design tradeoff to be aware of, not a bug: #7 (thread-per-endpoint)

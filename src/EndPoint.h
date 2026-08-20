@@ -26,7 +26,7 @@ namespace Tpp
 class ServiceProvider;
 class Api;
 
-class EndPoint : public Bricks::LoggableS<Websocket::EndPoint>
+class EndPoint final : public Bricks::LoggableS<Websocket::EndPoint>
 {
     template<class TClientType> class Impl;
     class TlsOn;
@@ -34,7 +34,7 @@ class EndPoint : public Bricks::LoggableS<Websocket::EndPoint>
 public:
     EndPoint(const std::shared_ptr<ServiceProvider>& serviceProvider,
              const std::shared_ptr<Bricks::Logger>& logger = {});
-    ~EndPoint() final;
+    ~EndPoint() override;
     // impl. of Websocket
     void setListener(const std::shared_ptr<Websocket::Listener>& listener) final;
     bool open(Websocket::Options options, uint64_t connectionId) final;

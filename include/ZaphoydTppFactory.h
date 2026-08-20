@@ -32,7 +32,7 @@ class ServiceProvider;
  * interface. It integrates with the `Bricks::Logger` for logging and the `Tpp::ServiceProvider`
  * for service provisioning.
  */
-class ZAPHOYD_TPP_API ZaphoydTppFactory : public Websocket::Factory
+class ZAPHOYD_TPP_API ZaphoydTppFactory final : public Websocket::Factory
 {
     /**
      * @brief Internal implementation class for handling service provisioning.
@@ -51,7 +51,7 @@ public:
     /**
      * @brief Destructor for cleaning up the factory.
      */
-    ~ZaphoydTppFactory() final;
+    ~ZaphoydTppFactory() override;
 
     /**
      * @brief Creates a new websocket endpoint.

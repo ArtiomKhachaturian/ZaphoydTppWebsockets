@@ -33,12 +33,12 @@ inline Websocket::Error makeError(const TException& e) {
     return Websocket::Error{failure, e.code(), e.what()};
 }
 
-class LogStream : public Bricks::LoggableS<std::streambuf>
+class LogStream final : public Bricks::LoggableS<std::streambuf>
 {
 public:
     LogStream(Bricks::LoggingSeverity severity,
               const std::shared_ptr<Bricks::Logger>& logger);
-    ~LogStream() final;
+    ~LogStream() override;
     operator std::ostream* () { return &_output; }
     // overrides of std::streambuf
     std::streamsize xsputn(const char* s, std::streamsize count) final;
@@ -88,6 +88,7 @@ public:
     // impl. of WebsocketTppApi
     bool open(const Config& config, uint64_t connectionId,
               const std::shared_ptr<Websocket::Listener>& listener) final;
+    void setListener(const std::shared_ptr<Websocket::Listener>& listener) final;
     std::string host() const final;
     Websocket::State state() const final { return _state(); }
     void close() final;
@@ -115,6 +116,9 @@ private:
     static std::string toText(MessagePtr message);
     static std::string toText(const Bricks::Blob& blob);
     static std::string toText(const std::string_view& text) { return std::string(text); }
+    static bool sameConnection(const Hdl& a, const Hdl& b) {
+        return !a.owner_before(b) && !b.owner_before(a);
+    }
     template<Websocket::Failure failureType, websocketpp::frame::opcode::value opCode, class TObj>
     bool send(const TObj& obj);
     // return true if state changed
@@ -147,12 +151,12 @@ private:
     Client _client;
 };
 
-class EndPoint::TlsOn : public Impl<asio_tls_client>
+class EndPoint::TlsOn final : public Impl<asio_tls_client>
 {
 public:
     TlsOn(uint64_t id, const std::shared_ptr<ServiceProvider>& serviceProvider,
           const std::shared_ptr<Bricks::Logger>& logger) noexcept(false);
-    ~TlsOn() final;
+    ~TlsOn() override;
 private:
     std::shared_ptr<SSLCtx> onInitTls(const Hdl&);
 };
@@ -182,6 +186,9 @@ EndPoint::~EndPoint()
 void EndPoint::setListener(const std::shared_ptr<Websocket::Listener>& listener)
 {
     std::atomic_store(&_listener, listener);
+    if (const auto active = std::atomic_load(&_active)) {
+        active->setListener(listener);
+    }
 }
 
 bool EndPoint::open(Websocket::Options options, uint64_t connectionId)
@@ -193,6 +200,11 @@ bool EndPoint::open(Websocket::Options options, uint64_t connectionId)
             std::atomic_store(&_active, std::move(active));
             return true;
         }
+    }
+    else if (const auto listener = std::atomic_load(&_listener)) {
+        listener->onError(id(), connectionId,
+                          Websocket::Error{Websocket::Failure::NoConnection, {},
+                                           "invalid or empty websocket host/URI"});
     }
     return false;
 }
@@ -332,6 +344,12 @@ bool EndPoint::Impl<TClientType>::open(const Config& config,
 }
 
 template <class TClientType>
+void EndPoint::Impl<TClientType>::setListener(const std::shared_ptr<Websocket::Listener>& listener)
+{
+    _listener = listener;
+}
+
+template <class TClientType>
 std::string EndPoint::Impl<TClientType>::host() const
 {
     LOCK_READ_SAFE_OBJ(_config);
@@ -456,9 +474,7 @@ template <class TClientType>
 std::string EndPoint::Impl<TClientType>::toText(MessagePtr message)
 {
     if (message) {
-        auto text = std::move(message->get_raw_payload());
-        message->recycle();
-        return text;
+        return std::move(message->get_raw_payload());
     }
     return {};
 }
@@ -611,10 +627,10 @@ void EndPoint::Impl<TClientType>::onMessage(const Hdl& hdl, MessagePtr message)
                 _listener.invoke(&Websocket::Listener::onBinaryMessage,
                                  socketId(), connectionId(),
                                  MessageBlobImpl(message));
-            case _pong:
+            /*case _pong:
                 _listener.invoke(&Websocket::Listener::onPong,
                                  socketId(), connectionId(),
-                                 MessageBlobImpl(message));
+                                 MessageBlobImpl(message));*/
                 break;
             default:
                 break;
@@ -630,11 +646,25 @@ void EndPoint::Impl<TClientType>::onPong(const Hdl& hdl, std::string payload)
 }
 
 template <class TClientType>
-void EndPoint::Impl<TClientType>::onClose(const Hdl&)
+void EndPoint::Impl<TClientType>::onClose(const Hdl& hdl)
 {
     if (!_ignoreCloseEvent) {
-        updateState();
-        _hdl({});
+        bool isCurrent = false;
+        {
+            LOCK_WRITE_SAFE_OBJ(_hdl);
+            isCurrent = sameConnection(hdl, _hdl.constRef());
+            if (isCurrent) {
+                _hdl.take();
+            }
+        }
+        if (isCurrent) {
+            // a close event unambiguously means the connection is now closed;
+            // no need to consult the (already-closing) connection object.
+            setState(Websocket::State::Disconnected);
+        }
+        // else: stale close event for a connection already superseded by a
+        // subsequent open() on this Impl — ignore it rather than corrupting
+        // the newer connection's _hdl/state.
     }
 }
 

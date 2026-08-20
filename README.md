@@ -14,8 +14,8 @@ It demonstrates how to implement a simple WebSocket client with `standalone Asio
 
 ## Requirements
 
-- C++11 or newer
-- CMake 3.10+
+- C++20 or newer
+- CMake 3.29+
 - A C++ compiler (GCC, Clang, MSVC)
 - [websocketpp](https://github.com/zaphoyd/websocketpp)
 - [Asio (standalone)](https://think-async.com/Asio/) — or Boost.Asio (with minor changes)
@@ -26,7 +26,7 @@ It demonstrates how to implement a simple WebSocket client with `standalone Asio
 Clone the repository and build using CMake:
 
 ```bash
-git clone https://github.com/ArtiomKhachaturian/ZaphoydTppWebsockets.git
+git clone --recurse-submodules https://github.com/ArtiomKhachaturian/ZaphoydTppWebsockets.git
 cd ZaphoydTppWebsockets
 mkdir build && cd build
 cmake ..

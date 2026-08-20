@@ -1,17 +1,35 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.29)
 
 # Project name
 project("ZaphoydTppWebsockets" LANGUAGES CXX VERSION 0.0.1)
+
+if(POLICY CMP0156)
+    cmake_policy(SET CMP0156 NEW) # de-duplicate libs on link lines
+endif()
+if(POLICY CMP0177)
+    cmake_policy(SET CMP0177 NEW) # normalize install() DESTINATION paths
+endif()
+if(POLICY CMP0179)
+    cmake_policy(SET CMP0179 NEW) # de-duplication of static libs (keeps first occurrence)
+endif()
+if(POLICY CMP0181)
+    cmake_policy(SET CMP0181 NEW) # re-quote link command-line fragments
+endif()
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
 
 # Set C++ standard
-set(CMAKE_CXX_STANDARD 17)
+if (UNIX AND NOT APPLE)
+  set(CMAKE_CXX_STANDARD 17)
+else()
+  set(CMAKE_CXX_STANDARD 20)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # -fvisibility=hidden
 set(CMAKE_C_VISIBILITY_PRESET hidden)
-set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 
@@ -115,11 +133,28 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Generic attributes for the library
 set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE YES SOVERSION ${PROJECT_VERSION} VERSION ${PROJECT_VERSION})
 if (WIN32)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE -D_WEBSOCKETPP_CPP11_STL_ -DUNICODE 
-        -DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_ENABLE_EXTENDED_ALIGNED_STORAGE)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        -D_WEBSOCKETPP_CPP11_STL_
+        -DUNICODE
+        -DNOMINMAX
+        -DWIN32_LEAN_AND_MEAN
+        -D_ENABLE_EXTENDED_ALIGNED_STORAGE
+    )
     target_link_libraries(${PROJECT_NAME} PUBLIC "ws2_32.lib")
+elseif(UNIX AND NOT APPLE)
+    set(EXPORTS_MAP ${CMAKE_SOURCE_DIR}/exports.map)
+    target_link_options(${PROJECT_NAME} PRIVATE
+        -Wl,--version-script,${EXPORTS_MAP}
+    )
 endif()
-target_compile_definitions(${PROJECT_NAME} PRIVATE -DASIO_STANDALONE -DZAPHOYD_TPP_EXPORTS -DPROJECT_VERSION="${PROJECT_VERSION}")
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    -DASIO_STANDALONE
+    -DZAPHOYD_TPP_EXPORTS
+    -DASIO_DISABLE_VISIBILITY
+    -DOPENSSL_NO_DEPRECATED
+    -DPROJECT_VERSION="${PROJECT_VERSION}"
+)
 target_link_libraries(${PROJECT_NAME} PUBLIC ${OPENSSL_LIBRARIES})
 
 if (CMAKE_INSTALL_PREFIX)
@@ -153,3 +188,24 @@ if (CMAKE_INSTALL_PREFIX)
     # install targets file
     install(EXPORT "${PROJECT_NAME}Targets" DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
 endif(CMAKE_INSTALL_PREFIX)
+
+option(ZAPHOYD_TPP_BUILD_TESTS "Build unit tests for ${PROJECT_NAME}" OFF)
+if (ZAPHOYD_TPP_BUILD_TESTS)
+    find_package(GTest QUIET)
+    if (GTest_FOUND OR GTEST_FOUND)
+        message(STATUS "Found GTest")
+    else()
+        message(STATUS "GTest not found locally, fetching from GitHub")
+        if (WIN32)
+            set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+        endif()
+        include(FetchContent)
+        FetchContent_Declare(
+            googletest
+            URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
+        )
+        FetchContent_MakeAvailable(googletest)
+    endif()
+    enable_testing()
+    add_subdirectory(tests)
+endif()

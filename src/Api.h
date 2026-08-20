@@ -35,6 +35,7 @@ public:
     virtual ~Api() = default;
     virtual bool open(const Config& config, uint64_t connectionId,
                       const std::shared_ptr<Websocket::Listener>& listener) = 0;
+    virtual void setListener(const std::shared_ptr<Websocket::Listener>& listener) = 0;
     virtual std::string host() const = 0;
     virtual Websocket::State state() const = 0;
     virtual void close() = 0;
