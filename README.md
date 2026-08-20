@@ -14,7 +14,7 @@ It demonstrates how to implement a simple WebSocket client with `standalone Asio
 
 ## Requirements
 
-- C++20 or newer
+- C++20 or newer (C++17 for Unix systems)
 - CMake 3.29+
 - A C++ compiler (GCC, Clang, MSVC)
 - [websocketpp](https://github.com/zaphoyd/websocketpp)
